@@ -2,6 +2,7 @@
     compression = 9
     whitespace = error
     preloadindex = true
+	editor = nvim
 
 [url "git@github.com:"]
     insteadOf = "gh:"
@@ -23,7 +24,7 @@
 
 [pull]
     default = current
-    rebase = true
+	rebase = true
     ff = only               
 
 [diff]
@@ -42,3 +43,5 @@
 
 [color]
     ui = auto
+[init]
+	defaultBranch = main

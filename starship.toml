@@ -21,3 +21,9 @@ read_only = " "
 [character]
 success_symbol = "[❯](bold)"
 error_symbol = "[❯](bold)"
+
+[conda]
+symbol = "🅒 "
+format = "[$symbol$environment]($style) "
+style = "bold green"
+ignore_base = false

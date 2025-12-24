@@ -1,6 +1,6 @@
-# color and cursor
+# color
+echo '\e[5 q'
 export COLORTERM=truecolor
-echo -ne '\e[5 q' 
 
 # >>> conda initialize >>>
 . "$HOME/anaconda3/etc/profile.d/conda.sh"
@@ -15,31 +15,71 @@ export NVM_DIR="$HOME/.nvm"
 nvm_lazy() { unset -f nvm; . "$NVM_DIR/nvm.sh"; nvm "$@"; }
 alias nvm=nvm_lazy
 
-# === ZSH COMPLETION ===
-fpath+=("/opt/homebrew/share/zsh-completions")
+# === ZSH TOOLS ===
+# always nvim
+export EDITOR=nvim
+export VISUAL=nvim
+# Completion
+fpath=(
+  /usr/share/zsh/site-functions
+  /usr/share/zsh/vendor-completions
+  $fpath
+)
 autoload -Uz compinit
-compinit -C  # fast init
-# compaudit | xargs chmod go-w  # only if necessary once
+compinit
 
-# === OTHER TOOLS ===
+# Don't ask before showing lots of matches
+setopt NO_LIST_BEEP
+setopt NO_BEEP
+
+# Immediately enter menu selection instead of dumping everything
+zstyle ':completion:*' menu select
+
+# Limit how many items before menu kicks in
+zstyle ':completion:*' list-prompt ''
+zstyle ':completion:*' list-max 50
+
+# Group and format results nicely
+zstyle ':completion:*' group-name ''
+zstyle ':completion:*:descriptions' format '%F{blue}-- %d --%f'
+zstyle ':completion:*:messages' format '%F{yellow}%d%f'
+zstyle ':completion:*:warnings' format '%F{red}%d%f'
+
+# Case-insensitive + fuzzy-ish matching
+zstyle ':completion:*' matcher-list \
+  'm:{a-z}={A-Za-z}' \
+  'r:|[._-]=** r:|=**'
+
+
+# Utilities
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh #fzf
 eval "$(zoxide init zsh)" #zoxide 
-source /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh #autosuggestions
-source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh #syntax
+source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh # suggestions
+source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh #syntax
 
 # -- ghostty zsh compatibility
-bindkey "^[b" backward-word
-bindkey "^[f" forward-word
-bindkey "^A" beginning-of-line
-bindkey "^E" end-of-line
-bindkey "^[[3;3~" kill-word
+# bindkey "^[b" backward-word
+# bindkey "^[f" forward-word
+# bindkey "^A" beginning-of-line
+# bindkey "^E" end-of-line
+# bindkey "^[[3;3~" kill-word
+
+# -- xterm navigation sequences
+bindkey '\e[D' backward-char
+bindkey '\e[C' forward-char
+bindkey '\e[1;3D' backward-word
+bindkey '\e[1;3C' forward-word
+bindkey '\e[1;5D' beginning-of-line
+bindkey '\e[1;5C' end-of-line
+bindkey '^H' kill-whole-line
+
 
 # === ALIASES ===
 alias vi="nvim"
 alias c="clear"
 alias ls="eza"
 alias grep="rg"
-alias cat="bat"
+alias cat="batcat" # ubuntu
 
 # -- tmux --
 alias tls='tmux list-sessions'
@@ -153,3 +193,4 @@ n ()
         rm -f -- "$NNN_TMPFILE" > /dev/null
     }
 }
+export PATH="$HOME/opt/nvim-linux-x86_64/bin:$PATH"
