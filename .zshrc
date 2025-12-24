@@ -9,6 +9,7 @@ export COLORTERM=truecolor
 # === EVAL ===
 eval "$(starship init zsh)"  # prompt
 eval "$(direnv hook zsh)" # direnv
+eval "$(ssh-agent -s)" #ssh
 
 # Lazy load NVM
 export NVM_DIR="$HOME/.nvm"
