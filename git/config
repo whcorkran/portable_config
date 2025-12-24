@@ -1,0 +1,44 @@
+[core]
+    compression = 9
+    whitespace = error
+    preloadindex = true
+
+[url "git@github.com:"]
+    insteadOf = "gh:"
+
+[branch]
+    sort = -committerdate
+
+[branch "main"]
+    rebase = false
+
+[status]
+    branch = true
+    showStash = true
+
+[push]
+    autoSetupRemote = true
+    default = current
+    followTags = true
+
+[pull]
+    default = current
+    rebase = true
+    ff = only               
+
+[diff]
+    context = 3
+    renames = copies
+    interHunkContext = 10
+
+[interactive]
+    difffilter = diff-so-fancy --patch
+
+[diff-so-fancy]
+    markEmptyLines = false
+    changeHunkIndicators = true
+    stripLeadingSymbols = false
+    useUnicodeRuler = true
+
+[color]
+    ui = auto
