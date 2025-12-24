@@ -1,0 +1,23 @@
+[python]
+symbol = "🐍"
+format = '$symbol $virtualenv '
+
+[git_status]
+disabled = true
+
+[nodejs]
+disabled= true
+
+[cmd_duration]
+min_time = 10000  # show only if longer than 10s
+format = " ⏱ $duration"
+
+[directory]
+truncation_length = 5
+truncate_to_repo = false
+home_symbol = "~"
+read_only = " "
+
+[character]
+success_symbol = "[❯](bold)"
+error_symbol = "[❯](bold)"
