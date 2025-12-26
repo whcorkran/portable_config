@@ -6,6 +6,7 @@ current_dir=$(pwd)
 # Define the list of files and directories to copy
 files_and_dirs=(
     "~/.zshrc"
+    "~/.zprofile"
     "~/.config/git"
     "~/.config/nvim"
     "~/.config/tmux/tmux.conf"

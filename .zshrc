@@ -1,6 +1,7 @@
+# .zshrc
+[[ -f ~/.zprofile ]] && source ~/.zprofile
 # color
 echo '\e[5 q'
-export COLORTERM=truecolor
 
 # >>> conda initialize >>>
 . "$HOME/anaconda3/etc/profile.d/conda.sh"
@@ -9,7 +10,6 @@ export COLORTERM=truecolor
 # === EVAL ===
 eval "$(starship init zsh)"  # prompt
 eval "$(direnv hook zsh)" # direnv
-eval "$(ssh-agent -s)" #ssh
 
 # Lazy load NVM
 export NVM_DIR="$HOME/.nvm"
@@ -17,9 +17,6 @@ nvm_lazy() { unset -f nvm; . "$NVM_DIR/nvm.sh"; nvm "$@"; }
 alias nvm=nvm_lazy
 
 # === ZSH TOOLS ===
-# always nvim
-export EDITOR=nvim
-export VISUAL=nvim
 # Completion
 fpath=(
   /usr/share/zsh/site-functions
@@ -194,4 +191,17 @@ n ()
         rm -f -- "$NNN_TMPFILE" > /dev/null
     }
 }
+
+# PATH setup
 export PATH="$HOME/opt/nvim-linux-x86_64/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
+
+# bun completions
+[ -s "/home/henry/.bun/_bun" ] && source "/home/henry/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+# opencode
+export PATH=/home/henry/.opencode/bin:$PATH
