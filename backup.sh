@@ -11,6 +11,7 @@ files_and_dirs=(
     "~/.config/nvim"
     "~/.config/tmux/tmux.conf"
     "~/.config/starship.toml"
+    "~/.config/alacritty/alacritty.toml"
 )
 
 # Loop through the list and copy each item to the current directory
@@ -35,3 +36,7 @@ for item in "${files_and_dirs[@]}"; do
 done
 
 echo "Config backup complete!"
+
+date=$(date +%Y-%m-%d)
+git commit -am "$date"
+git push origin main

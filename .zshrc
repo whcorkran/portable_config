@@ -1,57 +1,42 @@
 # .zshrc
 [[ -f ~/.zprofile ]] && source ~/.zprofile
-# color
-echo '\e[5 q'
-
 # >>> conda initialize >>>
 . "$HOME/anaconda3/etc/profile.d/conda.sh"
 # <<< conda initialize <<<
 
 # === EVAL ===
 eval "$(starship init zsh)"  # prompt
-eval "$(direnv hook zsh)" # direnv
-
-# Lazy load NVM
-export NVM_DIR="$HOME/.nvm"
-nvm_lazy() { unset -f nvm; . "$NVM_DIR/nvm.sh"; nvm "$@"; }
-alias nvm=nvm_lazy
 
 # === ZSH TOOLS ===
-# Completion
+# Utilities
+eval "$(zoxide init zsh)" #zoxide 
+source ~/.fzf.zsh >/dev/null 2>&1 #fzf
+
+# Tab Completion
 fpath=(
   /usr/share/zsh/site-functions
   /usr/share/zsh/vendor-completions
   $fpath
 )
-autoload -Uz compinit
-compinit
+autoload -Uz compinit; compinit -u
+zstyle ':completion:*:git-checkout:*' sort false
+zstyle ':completion:*:descriptions' format '[%d]'
+# set list-colors to enable filename colorizing
+zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
+zstyle ':completion:*' menu no
+# preview directory's content with eza when completing cd
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
+# fzf-tab does not follow FZF_DEFAULT_OPTS by default
+zstyle ':fzf-tab:*' fzf-flags --no-clear --height=40%  --bind=enter:accept --info=inline
+if [[ -n "$TMUX" ]]; then
+  zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
+  zstyle ':fzf-tab:*' popup-min-size 50 8
+fi
+zstyle ':fzf-tab:*' use-fzf-default-opts no
 
-# Don't ask before showing lots of matches
-setopt NO_LIST_BEEP
-setopt NO_BEEP
+source ~/opt/fzf-tab/fzf-tab.plugin.zsh # tab completion fzf, needs to be git cloned!
+# alacritty ubuntu compatibility fix: sed -i '83s/^/#/' ~/opt/fzf-tab/lib/-ftb-fzf
 
-# Immediately enter menu selection instead of dumping everything
-zstyle ':completion:*' menu select
-
-# Limit how many items before menu kicks in
-zstyle ':completion:*' list-prompt ''
-zstyle ':completion:*' list-max 50
-
-# Group and format results nicely
-zstyle ':completion:*' group-name ''
-zstyle ':completion:*:descriptions' format '%F{blue}-- %d --%f'
-zstyle ':completion:*:messages' format '%F{yellow}%d%f'
-zstyle ':completion:*:warnings' format '%F{red}%d%f'
-
-# Case-insensitive + fuzzy-ish matching
-zstyle ':completion:*' matcher-list \
-  'm:{a-z}={A-Za-z}' \
-  'r:|[._-]=** r:|=**'
-
-
-# Utilities
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh #fzf
-eval "$(zoxide init zsh)" #zoxide 
 source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh # suggestions
 source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh #syntax
 
@@ -69,14 +54,13 @@ bindkey '\e[1;3D' backward-word
 bindkey '\e[1;3C' forward-word
 bindkey '\e[1;5D' beginning-of-line
 bindkey '\e[1;5C' end-of-line
-bindkey '^H' kill-whole-line
+# alt/ctrl delete are handled by terminal emulator
 
 
 # === ALIASES ===
 alias vi="nvim"
 alias c="clear"
 alias ls="eza"
-alias grep="rg"
 alias cat="batcat" # ubuntu
 
 # -- tmux --
@@ -94,7 +78,8 @@ alias gp='git push'
 alias cdg='cd $(groot)'
 # sexy working tree graph
 alias gtree="git log --graph --decorate --all --pretty=format:'%C(auto)%h %C(blue)%ad %Creset)%s %C(green)(%an)%C(reset)' --date=short"
-
+# pipe to clipboard
+alias copy='xsel -b'
 
 # === SHELL SCRIPTS ===
 # --- tmux pane title updater ---
