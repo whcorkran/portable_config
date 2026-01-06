@@ -39,4 +39,4 @@ echo "Config backup complete!"
 
 date=$(date +%Y-%m-%d)
 git commit -am "$date"
-git push origin main
+git push origin main -q
