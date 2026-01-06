@@ -1,0 +1,128 @@
+# ============================================================
+# Alacritty configuration (ported from WezTerm)
+#
+# Priorities:
+#   - Crisp glyphs and exact colors
+#   - Zero UI interference with Neovim
+#   - Reliable behavior over SSH
+#   - Starship-friendly font + spacing
+#
+# Note: Some WezTerm features have no Alacritty equivalent:
+#   - Status bar (update-#status callback)
+#   - WebGPU frontend (Alacritty uses OpenGL)
+#   - SSH domains
+#   - Per-pane inactive dimming
+# ============================================================
+
+# ------------------------------------------------------------
+# WINDOW
+# ------------------------------------------------------------
+[general]
+live_config_reload = true
+import = [
+    "~/.config/alacritty/themes/themes/tender.toml"
+]
+
+
+[window]
+dimensions = { columns = 160, lines = 40 }
+
+decorations = "Full"
+
+dynamic_padding = true
+
+resize_increments = false
+
+# Optional: disable blur/transparency for clean look
+opacity = 0.95
+blur = true
+
+# ------------------------------------------------------------
+# FONT
+# ------------------------------------------------------------
+[font]
+size = 10.5
+builtin_box_drawing = true
+
+[font.normal]
+family = "JetBrains Mono Nerd Font"
+style = "Light"
+
+[font.bold]
+family = "JetBrains Mono Nerd Font"
+style = "Medium"
+
+[font.italic]
+family = "JetBrains Mono Nerd Font"
+style = "Light Italic"
+
+[font.bold_italic]
+family = "JetBrains Mono Nerd Font"
+style = "Medium Italic"
+
+# ------------------------------------------------------------
+# SCROLLING
+# ------------------------------------------------------------
+[scrolling]
+history = 20000
+
+multiplier = 3
+
+# ------------------------------------------------------------
+# CURSOR
+# ------------------------------------------------------------
+[cursor]
+blink_interval = 500
+unfocused_hollow = true
+
+[cursor.style]
+shape = "Beam"
+blinking = "On"
+
+# ------------------------------------------------------------
+# TERMINAL
+# ------------------------------------------------------------
+[terminal]
+
+shell = { program = "/usr/bin/zsh", args = ["-l"] }
+
+# ------------------------------------------------------------
+# SELECTION
+# ------------------------------------------------------------
+[selection]
+save_to_clipboard = true
+
+[keyboard]
+# ------------------------------------------------------------
+# KEYBINDINGS
+# ------------------------------------------------------------
+bindings = [
+{ key = "Back", mods = "Alt", chars = "\u0017"},
+{ key = "Back", mods = "Control", chars = "\u0015"},
+{key = "Return", mods = "Shift", chars = "\n"},
+{ key = "n", mods = "Control | Shift", action = "CreateNewWindow" },
+{ key = "w", mods = "Control | Shift", action = "Quit" },
+{key = 'f', mods = 'Control | Shift', action = "ToggleMaximized"}
+]
+# ------------------------------------------------------------
+# MOUSE
+# ------------------------------------------------------------
+[mouse]
+hide_when_typing = false
+
+[[mouse.bindings]]
+# Right click to paste 
+mouse = "Right"
+action = "Paste"
+
+[colors]
+draw_bold_text_with_bright_colors = false
+
+# ------------------------------------------------------------
+# HINTS (URL detection, etc.)
+# ------------------------------------------------------------
+[hints]
+enabled = [
+    { regex = "(ipfs:|ipns:|magnet:|mailto:|gemini://|gopher://|https://|http://|news:|file:|git://|ssh:|ftp://)[^\u0000-\u001F\u007F-\u009F<>\"\\s{-}\\^⟨⟩`]+", hyperlinks = true, command = "xdg-open", post_processing = true, mouse = { enabled = true, mods = "Control" }, binding = { key = "U", mods = "Control|Shift" } }
+]
+
