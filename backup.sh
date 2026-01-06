@@ -38,6 +38,8 @@ done
 echo "Config backup complete!"
 
 date=$(date +%Y-%m-%d)
-git add .
-git commit -m "$date"
-git push origin main -q
+repo=$(echo "$HOME/Desktop/portable_config")
+git -C $repo add .
+git -C $repo commit -m "$date"
+git -C $repo push origin main -q
+
