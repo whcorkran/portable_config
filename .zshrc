@@ -60,7 +60,7 @@ bindkey '\e[1;5C' end-of-line
 # === ALIASES ===
 alias vi="nvim"
 alias c="clear"
-alias ls="eza"
+alias ls="eza --icons"
 alias cat="batcat" # ubuntu
 
 # -- tmux --
@@ -134,7 +134,7 @@ ta() {
 groot() { git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null || return 1 }
 
 # -- eza with arguments tree
-l() { eza -T --icons --level=${1:-2} --group-directories-first --header --long --no-user --no-permissions --modified }
+l() { eza -T --icons --level=${2:-2}  --group-directories-first --header --long --no-user --no-permissions --modified ${1:-.}}
 
 
 # -- nnn configuration
