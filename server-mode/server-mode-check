@@ -1,0 +1,310 @@
+#!/usr/bin/env bash
+#
+# server-mode-check - Pre-flight validation for server-mode
+#
+# This script runs independently with relaxed error handling to
+# thoroughly check system compatibility.
+#
+# IT DOES NOT STOP ON ERRORS. It collects them and reports at the end.
+
+# Strict variable checking only. 
+set -u
+
+readonly VERSION="3.3.2-ssh-fix"
+
+# Colors
+if [[ -t 1 ]]; then
+    readonly RED='\033[0;31m'
+    readonly GREEN='\033[0;32m'
+    readonly YELLOW='\033[1;33m'
+    readonly BLUE='\033[0;34m'
+    readonly CYAN='\033[0;36m'
+    readonly BOLD='\033[1m'
+    readonly NC='\033[0m'
+else
+    readonly RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' NC=''
+fi
+
+log() { echo -e "${CYAN}→${NC} $*"; }
+ok()  { echo -e "${GREEN}✓${NC} $*"; }
+warn() { echo -e "${YELLOW}⚠${NC} $*"; }
+err() { echo -e "${RED}✗${NC} $*"; }
+
+echo -e "${BOLD}Server Mode Pre-flight Check (v$VERSION)${NC}"
+echo "=========================================="
+echo ""
+
+errors=0
+warnings=0
+
+# ------------------------------------------------------------------------------
+# Core System Checks
+# ------------------------------------------------------------------------------
+
+echo -e "${BOLD}System Components:${NC}"
+
+# Systemd
+if command -v systemctl &>/dev/null; then
+    ok "systemd available"
+else
+    err "systemctl not found"
+    ((errors++))
+fi
+
+# Required commands
+for cmd in systemd-run flock awk ss loginctl grep; do
+    if command -v "$cmd" &>/dev/null; then
+        ok "$cmd available"
+    else
+        err "$cmd not found (required)"
+        ((errors++))
+    fi
+done
+
+echo ""
+
+# ------------------------------------------------------------------------------
+# System State & Inhibitors
+# ------------------------------------------------------------------------------
+
+echo -e "${BOLD}System State:${NC}"
+
+# Check for active inhibitors that might block isolation
+if systemd-inhibit --list --mode=block --no-legend 2>/dev/null | grep -q .; then
+    warn "Active system inhibitors detected (may delay transition):"
+    systemd-inhibit --list --mode=block --no-legend 2>/dev/null | sed 's/^/  - /'
+    ((warnings++))
+else
+    ok "No blocking system inhibitors"
+fi
+
+# Check for current target
+current_target=$(systemctl get-default 2>/dev/null || echo "unknown")
+log "Default target: $current_target"
+
+# Check for required targets
+if systemctl list-unit-files --no-pager 2>/dev/null | grep -q "multi-user.target"; then
+    ok "multi-user.target found"
+else
+    err "multi-user.target not found"
+    ((errors++))
+fi
+
+if systemctl list-unit-files --no-pager 2>/dev/null | grep -q "graphical.target"; then
+    ok "graphical.target found"
+else
+    err "graphical.target not found"
+    ((errors++))
+fi
+
+echo ""
+
+# ------------------------------------------------------------------------------
+# Display Manager
+# ------------------------------------------------------------------------------
+
+echo -e "${BOLD}Display Manager:${NC}"
+
+dm_found=0
+detected_dm=""
+
+for dm in gdm gdm3 lightdm sddm lxdm; do
+    if systemctl list-unit-files --no-pager 2>/dev/null | grep -q "^$dm.service"; then
+        detected_dm="$dm"
+        dm_found=1
+        break
+    fi
+done
+
+if ((dm_found)); then
+    ok "Display manager detected: $detected_dm"
+
+    # Check if it's running
+    if systemctl is-active "$detected_dm" &>/dev/null; then
+        ok "$detected_dm is currently running"
+    else
+        warn "$detected_dm is installed but not running"
+        ((warnings++))
+    fi
+else
+    err "No display manager found (checked: gdm, gdm3, lightdm, sddm, lxdm)"
+    err "Cannot transition without a display manager"
+    ((errors++))
+fi
+
+echo ""
+
+# ------------------------------------------------------------------------------
+# Networking & SSH
+# ------------------------------------------------------------------------------
+
+echo -e "${BOLD}Network Services:${NC}"
+
+# SSH service
+ssh_found=0
+for ssh_service in ssh sshd; do
+    if systemctl is-active "$ssh_service" &>/dev/null; then
+        ok "SSH service active: $ssh_service"
+        ssh_found=1
+        break
+    fi
+done
+
+if ((ssh_found == 0)); then
+    err "SSH service not running"
+    err "You will lose remote access if you enter server mode!"
+    ((errors++))
+fi
+
+# Dynamic SSH Port Detection (Fixed Logic)
+# 1. Look for 'Port' in config (case insensitive)
+# 2. If grep finds nothing, it returns empty string.
+# 3. We explicitly default to 22 if the variable is empty.
+raw_port=$(grep -i "^Port " /etc/ssh/sshd_config 2>/dev/null | head -n1 | awk '{print $2}')
+ssh_port="${raw_port:-22}"
+
+# Check using word boundary or space to avoid partial matches (e.g. port 22 matching 2222)
+# ss -tln outputs "Local Address:Port", e.g. "0.0.0.0:22" or "[::]:22"
+if ss -tln 2>/dev/null | grep -E -q ":$ssh_port(\s|$)"; then
+    ok "SSH listening on configured port $ssh_port"
+else
+    err "SSH not listening on configured port $ssh_port"
+    log "Debug: Config found '$ssh_port', checking 'ss -tln' output..."
+    ((errors++))
+fi
+
+# Network manager
+if systemctl is-active NetworkManager &>/dev/null; then
+    ok "NetworkManager running"
+elif systemctl is-active systemd-networkd &>/dev/null; then
+    ok "systemd-networkd running"
+else
+    warn "No network manager detected"
+    ((warnings++))
+fi
+
+# Tailscale (optional but recommended)
+if systemctl is-active tailscaled &>/dev/null; then
+    ts_ip=$(tailscale ip -4 2>/dev/null || echo "unknown")
+    ok "Tailscale active: $ts_ip"
+else
+    warn "Tailscale not running (recommended for SSH access)"
+    ((warnings++))
+fi
+
+echo ""
+
+# ------------------------------------------------------------------------------
+# Hardware Support
+# ------------------------------------------------------------------------------
+
+echo -e "${BOLD}Hardware Support:${NC}"
+
+# CPU frequency scaling
+if [[ -r /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver ]]; then
+    cpu_driver=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null || echo "unknown")
+    ok "CPU frequency driver: $cpu_driver"
+
+    # Check EPP support
+    if [[ -r /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference ]]; then
+        current_epp=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo "unknown")
+        ok "CPU EPP supported (current: $current_epp)"
+
+        # Count cores
+        epp_count=$(find /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference 2>/dev/null | wc -l)
+        log "EPP controllable cores: $epp_count"
+    else
+        err "CPU EPP not available (amd_pstate_epp not loaded?)"
+        err "Add amd_pstate=active to kernel parameters"
+        ((errors++))
+    fi
+else
+    err "CPU frequency scaling not available"
+    ((errors++))
+fi
+
+# GPU
+if command -v nvidia-smi &>/dev/null; then
+    gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "unknown")
+    ok "NVIDIA GPU detected: $gpu_name"
+
+    # Check power limit capability
+    if nvidia-smi -q -d POWER 2>/dev/null | grep -q "Power Limit"; then
+        current_limit=$(nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits 2>/dev/null || echo "N/A")
+        min_limit=$(nvidia-smi -q -d POWER 2>/dev/null | awk '/Min Power Limit/ {print $5; exit}')
+        max_limit=$(nvidia-smi -q -d POWER 2>/dev/null | awk '/Max Power Limit/ {print $5; exit}')
+        ok "GPU power management available"
+        log "Power range: ${min_limit}W - ${max_limit}W (current: ${current_limit}W)"
+    else
+        warn "GPU power limit may not be adjustable"
+        ((warnings++))
+    fi
+else
+    warn "nvidia-smi not found (GPU power management disabled)"
+    log "This is fine if you don't have an NVIDIA GPU"
+    ((warnings++))
+fi
+
+echo ""
+
+# ------------------------------------------------------------------------------
+# User Configuration
+# ------------------------------------------------------------------------------
+
+echo -e "${BOLD}User Configuration:${NC}"
+
+current_user="${SUDO_USER:-$USER}"
+
+# Linger status
+if loginctl show-user "$current_user" -p Linger 2>/dev/null | grep -q "yes"; then
+    ok "Linger enabled for $current_user"
+else
+    warn "Linger NOT enabled for $current_user"
+    log "Background jobs may be killed when entering server mode"
+    log "Enable with: loginctl enable-linger $current_user"
+    ((warnings++))
+fi
+
+# Check for OTHER logged in users
+other_users=$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $3}' | sort -u | grep -v "^$current_user$" || true)
+
+if [[ -n "$other_users" ]]; then
+    warn "Other users are currently logged in: $other_users"
+    log "Entering server mode will forcibly terminate their sessions!"
+    ((warnings++))
+else
+    ok "No other active user sessions detected"
+fi
+
+# TTY access
+if groups | grep -q tty; then
+    ok "User in 'tty' group (physical console access)"
+else
+    log "User not in 'tty' group (may affect physical console)"
+fi
+
+echo ""
+
+# ------------------------------------------------------------------------------
+# Summary & Recommendations
+# ------------------------------------------------------------------------------
+
+echo -e "${BOLD}Summary:${NC}"
+
+if ((errors > 0)); then
+    echo -e "${RED}✗ Pre-flight FAILED with $errors error(s)${NC}"
+    if ((warnings > 0)); then
+        echo -e "${YELLOW}  $warnings warning(s)${NC}"
+    fi
+    echo ""
+    echo "Fix the errors above before running 'server-mode on'"
+    exit 1
+elif ((warnings > 0)); then
+    echo -e "${GREEN}✓ Pre-flight passed${NC} ${YELLOW}($warnings warning(s))${NC}"
+    echo ""
+    echo "System is functional but has minor issues (see warnings above)"
+    exit 0
+else
+    echo -e "${GREEN}✓ All checks passed - system ready for server mode${NC}"
+    exit 0
+fi

@@ -1,0 +1,592 @@
+#!/usr/bin/env bash
+#
+# server-mode - script enabling easy access over ssh to idle machine without display overhead
+# Hardware: AMD Ryzen 9950X3D + NVIDIA RTX 5090
+# System:   Ubuntu 25.10
+#
+# Architecture:
+#   - Ephemeral State: /run/server-mode (tmpfs, reboot-safe)
+#   - Detached Execution: systemd transient service (survives PTY death)
+#   - Verified Operations: All critical steps are validated
+#   - Resilience: Timeouts, rollbacks, and safe fallbacks
+#   - Observability: journald integration via systemd-cat
+
+set -euo pipefail
+
+# ------------------------------------------------------------------------------
+# Configuration (Override in /etc/default/server-mode)
+# ------------------------------------------------------------------------------
+
+readonly VERSION="3.3.0-hardened"
+readonly SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+readonly RUN_DIR="/run/server-mode"
+readonly STATE_FILE="${RUN_DIR}/state"
+readonly LOCK_FILE="/run/lock/server-mode.lock"
+readonly TRANSITION_LOCK="/run/lock/server-mode-transition.lock"
+
+# Defaults (can be overridden)
+CPU_EPP_SERVER="${CPU_EPP_SERVER:-power}"
+CPU_EPP_DESKTOP="${CPU_EPP_DESKTOP:-balance_performance}"
+GPU_POWER_LIMIT_SERVER="${GPU_POWER_LIMIT_SERVER:-400}"
+GPU_POWER_LIMIT_DESKTOP="${GPU_POWER_LIMIT_DESKTOP:-575}"
+SAFETY_TIMEOUT="${SAFETY_TIMEOUT:-300}"  # 5 minutes for safety margin
+SKIP_LINGER_CHECK="${SKIP_LINGER_CHECK:-0}"
+
+# Load external config if present (before logging setup to catch errors)
+if [[ -f /etc/default/server-mode ]]; then
+    # shellcheck source=/dev/null
+    if ! source /etc/default/server-mode 2>/dev/null; then
+        echo "WARNING: Failed to load /etc/default/server-mode" >&2
+    fi
+fi
+
+# ------------------------------------------------------------------------------
+# Logging (Deferred to avoid breaking interactive prompts)
+# ------------------------------------------------------------------------------
+
+# Global flag to track if we should use journald
+USE_JOURNALD=0
+
+setup_logging() {
+    # Only redirect to journald if non-interactive AND not already redirected
+    if [[ ! -t 1 ]] && [[ "$USE_JOURNALD" -eq 0 ]]; then
+        exec 1> >(systemd-cat -t server-mode)
+        exec 2> >(systemd-cat -t server-mode -p err)
+        USE_JOURNALD=1
+    fi
+}
+
+log() { echo "INFO: $*"; }
+err() { echo "ERROR: $*" >&2; }
+ok()  { echo "OK: $*"; }
+die() { err "$*"; exit 1; }
+
+require_root() {
+    if [[ "$EUID" -ne 0 ]]; then
+        # Preserve only safe environment variables
+        exec sudo \
+            SSH_CONNECTION="${SSH_CONNECTION:-}" \
+            SSH_CLIENT="${SSH_CLIENT:-}" \
+            SSH_TTY="${SSH_TTY:-}" \
+            "$0" "$@"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Hardware Abstraction Layer (Simplified & Robust)
+# ------------------------------------------------------------------------------
+
+apply_cpu_epp() {
+    local target="$1"
+    local count=0
+
+    # Write to ALL cores (no idempotency check - kernel handles no-op writes efficiently)
+    for file in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+        if [[ -w "$file" ]]; then
+            echo "$target" > "$file" 2>/dev/null && ((count++))
+        fi
+    done
+
+    if ((count > 0)); then
+        ok "CPU EPP set to '$target' on $count cores"
+        return 0
+    fi
+
+    err "Failed to set CPU EPP (no writable files)"
+    return 1
+}
+
+apply_gpu_power() {
+    local watts="$1"
+    command -v nvidia-smi &>/dev/null || return 0
+
+    # Query minimum limit with aggressive timeout and D-state protection
+    # Strategy: Launch in background, kill if hangs, accept failure gracefully
+    local min_lim=""
+    local gpu_query_pid
+
+    {
+        nvidia-smi -q -d POWER 2>/dev/null | awk '/Min Power Limit/ {print int($5); exit}'
+    } &
+    gpu_query_pid=$!
+
+    # Wait with timeout
+    if wait_with_timeout "$gpu_query_pid" 3; then
+        min_lim=$(cat)
+    else
+        # Timeout or failure - kill and continue without GPU management
+        kill -9 "$gpu_query_pid" 2>/dev/null || true
+        err "GPU query timed out (driver may be hung)"
+        log "Skipping GPU power management - not critical for transition"
+        return 0
+    fi
+
+    # Clamp to minimum if needed
+    if [[ -n "$min_lim" && "$watts" -lt "$min_lim" ]]; then
+        log "Clamping ${watts}W to hardware minimum ${min_lim}W"
+        watts="$min_lim"
+    fi
+
+    # Apply limit with timeout (best-effort)
+    local set_limit_pid
+    nvidia-smi -pl "$watts" &>/dev/null 2>&1 &
+    set_limit_pid=$!
+
+    if wait_with_timeout "$set_limit_pid" 3; then
+        ok "GPU limit set to ${watts}W"
+        return 0
+    else
+        kill -9 "$set_limit_pid" 2>/dev/null || true
+        err "GPU limit setting timed out"
+        log "Continuing without GPU power management"
+        return 0
+    fi
+}
+
+# Helper: Wait for PID with timeout (bash-native, no external timeout command)
+wait_with_timeout() {
+    local pid=$1
+    local timeout_sec=$2
+    local elapsed=0
+
+    while ((elapsed < timeout_sec)); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            # Process finished
+            wait "$pid" 2>/dev/null
+            return 0
+        fi
+        sleep 0.1
+        elapsed=$((elapsed + 1))
+    done
+
+    # Timeout exceeded
+    return 1
+}
+
+# ------------------------------------------------------------------------------
+# Pre-flight Checks (delegated to external script)
+# ------------------------------------------------------------------------------
+
+preflight_check() {
+    local check_script="$(dirname "$SCRIPT_PATH")/server-mode-check"
+
+    if [[ ! -x "$check_script" ]]; then
+        err "Pre-flight check script not found or not executable: $check_script"
+        return 1
+    fi
+
+    # Run the external checker (it handles its own output)
+    if "$check_script"; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Safety Net (Process-Tracked Recovery)
+# ------------------------------------------------------------------------------
+
+engage_safety_net() {
+    log "Arming safety net (${SAFETY_TIMEOUT}s timeout)..."
+
+    # Store the PID of the transition service (will be set by systemd-run)
+    # We use a marker file that the safety timer checks
+    mkdir -p "$RUN_DIR"
+    echo "armed" > "$RUN_DIR/safety_armed"
+
+    # Clean up any previous instances
+    systemctl stop server-mode-safety.timer &>/dev/null || true
+    systemctl reset-failed server-mode-safety.service &>/dev/null || true
+
+    # Create transient timer with process verification
+    # Use single quotes to prevent premature expansion
+    systemd-run \
+        --unit=server-mode-safety \
+        --on-active="$SAFETY_TIMEOUT" \
+        --timer-property=AccuracySec=1s \
+        --description="Server Mode Safety Restore" \
+        /bin/bash -c '
+            if [[ -f '"$RUN_DIR"'/safety_armed ]]; then
+                logger -t server-mode "Safety restore triggered - timeout exceeded"
+                systemctl isolate graphical.target
+            else
+                logger -t server-mode "Safety timer expired but already disarmed"
+            fi
+        '
+
+    ok "Safety net armed"
+}
+
+disarm_safety_net() {
+    rm -f "$RUN_DIR/safety_armed"
+    systemctl stop server-mode-safety.timer &>/dev/null || true
+}
+
+# ------------------------------------------------------------------------------
+# Core Transition Logic (Fully Detached & Verified)
+# ------------------------------------------------------------------------------
+
+transition_to_server() {
+    # This function runs inside a systemd transient SERVICE (not scope)
+    # It is fully detached from any terminal and will survive PTY death
+
+    # Acquire transition lock (survives parent death)
+    exec {tlock}>"$TRANSITION_LOCK" 2>/dev/null || return 1
+    if ! flock -n "$tlock"; then
+        log "Transition already in progress"
+        return 1
+    fi
+
+    # Setup logging for detached execution
+    setup_logging
+
+    # Arm safety net if this was an SSH session
+    if [[ "${WAS_SSH:-0}" == "1" ]]; then
+        engage_safety_net
+    fi
+
+    # Apply hardware limits
+    if ! apply_cpu_epp "$CPU_EPP_SERVER"; then
+        err "CPU configuration failed"
+        disarm_safety_net
+        return 1
+    fi
+
+    # Ensure NVIDIA persistence mode is ON to prevent driver unload
+    # when graphical clients disappear (Critical for RTX 5090 stability)
+    if command -v nvidia-smi &>/dev/null; then
+        nvidia-smi -pm 1 &>/dev/null || log "Warning: Failed to enable NVIDIA persistence mode"
+    fi
+
+    # GPU is best-effort (won't fail transition)
+    apply_gpu_power "$GPU_POWER_LIMIT_SERVER"
+
+    # Write state file with verification
+    if ! mkdir -p "$RUN_DIR"; then
+        err "Cannot create state directory: $RUN_DIR"
+        disarm_safety_net
+        return 1
+    fi
+
+    # Use the passed-in TRIGGER_USER for accurate auditing
+    if ! cat > "${STATE_FILE}.tmp" <<EOF
+START_TIME=$(date +%s)
+USER=${TRIGGER_USER:-root}
+EOF
+    then
+        err "Cannot write state file (disk full?)"
+        disarm_safety_net
+        return 1
+    fi
+
+    if ! mv "${STATE_FILE}.tmp" "$STATE_FILE"; then
+        err "Cannot finalize state file"
+        rm -f "${STATE_FILE}.tmp"
+        disarm_safety_net
+        return 1
+    fi
+
+    # Perform the critical transition
+    log "Isolating multi-user.target..."
+    if ! systemctl isolate multi-user.target; then
+        err "systemctl isolate failed! Rolling back..."
+        apply_cpu_epp "$CPU_EPP_DESKTOP"
+        apply_gpu_power "$GPU_POWER_LIMIT_DESKTOP"
+        rm -f "$STATE_FILE"
+        disarm_safety_net
+        return 1
+    fi
+
+    # CRITICAL: Verify the transition actually succeeded
+    sleep 2  # Give systemd time to settle
+
+    if ! systemctl is-active multi-user.target &>/dev/null; then
+        err "multi-user.target is not active after isolation!"
+        err "System may be in inconsistent state - attempting recovery..."
+        systemctl isolate graphical.target
+        apply_cpu_epp "$CPU_EPP_DESKTOP"
+        apply_gpu_power "$GPU_POWER_LIMIT_DESKTOP"
+        rm -f "$STATE_FILE"
+        disarm_safety_net
+        return 1
+    fi
+
+    # Verify display manager actually stopped
+    for dm in gdm gdm3 lightdm sddm; do
+        if systemctl is-active "$dm" &>/dev/null; then
+            err "Display manager $dm is still running after isolation!"
+            err "Attempting recovery..."
+            systemctl isolate graphical.target
+            apply_cpu_epp "$CPU_EPP_DESKTOP"
+            apply_gpu_power "$GPU_POWER_LIMIT_DESKTOP"
+            rm -f "$STATE_FILE"
+            disarm_safety_net
+            return 1
+        fi
+    done
+
+    disarm_safety_net
+    ok "Server mode active and verified"
+    ok "multi-user.target active, display manager stopped"
+}
+
+transition_to_desktop() {
+    # Acquire transition lock
+    exec {tlock}>"$TRANSITION_LOCK" 2>/dev/null || return 1
+    if ! flock -n "$tlock"; then
+        log "Transition already in progress"
+        return 1
+    fi
+
+    # Setup logging
+    setup_logging
+
+    # Restore hardware settings
+    apply_cpu_epp "$CPU_EPP_DESKTOP"
+    apply_gpu_power "$GPU_POWER_LIMIT_DESKTOP"
+
+    # Clear state
+    rm -f "$STATE_FILE"
+
+    # Restore graphical target with timeout
+    log "Isolating graphical.target..."
+
+    # Use background process with bash-native timeout
+    local isolate_pid
+    systemctl isolate graphical.target &
+    isolate_pid=$!
+
+    if ! wait_with_timeout "$isolate_pid" 30; then
+        err "Failed to restore graphical.target within 30 seconds!"
+        err "System may be in inconsistent state"
+        err "Manual recovery: sudo systemctl start gdm (or your display manager)"
+        kill -9 "$isolate_pid" 2>/dev/null || true
+        return 1
+    fi
+
+    ok "Desktop restored successfully"
+}
+
+# ------------------------------------------------------------------------------
+# Command Handlers
+# ------------------------------------------------------------------------------
+
+cmd_on() {
+    # Detect SSH session BEFORE sudo (environment won't be preserved perfectly)
+    local is_ssh=0
+    [[ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ]] && is_ssh=1
+
+    require_root
+
+    # Acquire command lock
+    exec {lock}>"$LOCK_FILE" 2>/dev/null || die "Cannot create lock file"
+    flock -n "$lock" || die "Another instance is already running"
+
+    # Check if already in server mode
+    if [[ -f "$STATE_FILE" ]]; then
+        log "Already in server mode"
+        exit 0
+    fi
+
+    # Run pre-flight checks (BEFORE logging redirect)
+    log "Running pre-flight checks..."
+    if ! preflight_check; then
+        die "Pre-flight checks failed - aborting for safety"
+    fi
+    ok "Pre-flight checks passed"
+
+    # Linger check with /dev/tty for guaranteed interactivity
+    local target_user="${SUDO_USER:-$USER}"
+    if [[ "$SKIP_LINGER_CHECK" != "1" ]] && ! loginctl show-user "$target_user" -p Linger 2>/dev/null | grep -q "yes"; then
+        if [[ -t 0 ]] && [[ -c /dev/tty ]]; then
+            # Interactive mode: prompt user via /dev/tty (bypasses any redirects)
+            echo -e "\033[0;33mWARNING: Linger is NOT enabled for $target_user\033[0m" > /dev/tty
+            echo "Background jobs started in desktop sessions (tmux, screen, etc.) may be killed." > /dev/tty
+            echo "To persist background jobs across logout, run: loginctl enable-linger $target_user" > /dev/tty
+            echo -n "Proceed anyway? [y/N] " > /dev/tty
+            read -r response < /dev/tty
+            [[ "$response" =~ ^[yY] ]] || die "Aborted by user"
+        else
+            # Non-interactive mode: just warn and continue
+            log "WARNING: Linger not enabled for $target_user - background jobs may be terminated"
+            log "Automated execution continuing..."
+        fi
+    fi
+
+    log "Starting server mode transition..."
+
+    # Execute transition in FULLY DETACHED systemd transient SERVICE
+    # This survives terminal death, SIGHUP, and any PTY closure
+    if ! systemd-run \
+        --service-type=oneshot \
+        --quiet \
+        --wait \
+        --collect \
+        --setenv=WAS_SSH="$is_ssh" \
+        --setenv=TRIGGER_USER="$target_user" \
+        --unit=server-mode-transition \
+        --description="Server Mode Transition" \
+        /bin/bash -c "source '$SCRIPT_PATH'; transition_to_server"; then
+        die "Transition failed"
+    fi
+
+    ok "Server mode enabled successfully"
+}
+
+cmd_off() {
+    require_root
+
+    exec {lock}>"$LOCK_FILE" 2>/dev/null || die "Cannot create lock file"
+    flock -n "$lock" || die "Another instance is already running"
+
+    log "Restoring desktop mode..."
+
+    # Run in detached service
+    if ! systemd-run \
+        --service-type=oneshot \
+        --quiet \
+        --wait \
+        --collect \
+        --unit=server-mode-restore \
+        --description="Server Mode Desktop Restore" \
+        /bin/bash -c "source '$SCRIPT_PATH'; transition_to_desktop"; then
+        die "Desktop restoration FAILED - manual recovery required"
+    fi
+
+    ok "Desktop mode restored successfully"
+}
+
+cmd_status() {
+    echo "Server Mode Status (v$VERSION)"
+    echo "----------------------------"
+
+    if [[ -f "$STATE_FILE" ]]; then
+        local start_time uptime
+        start_time=$(awk -F= '/^START_TIME/ {print $2}' "$STATE_FILE" 2>/dev/null || echo "0")
+        uptime=$(( $(date +%s) - start_time ))
+        echo -e "State: \033[0;32mSERVER\033[0m (uptime: ${uptime}s)"
+
+        local user
+        user=$(awk -F= '/^USER/ {print $2}' "$STATE_FILE" 2>/dev/null || echo "unknown")
+        echo "Activated by: $user"
+    else
+        echo -e "State: \033[0;34mDESKTOP\033[0m"
+    fi
+
+    echo ""
+    echo "Hardware:"
+
+    # CPU status
+    local cpu_epp
+    cpu_epp=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo "N/A")
+    echo "  CPU EPP:   $cpu_epp"
+
+    # GPU status (with timeout protection)
+    if command -v nvidia-smi &>/dev/null; then
+        local gpu_limit
+        local gpu_pid
+
+        nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits 2>/dev/null &
+        gpu_pid=$!
+
+        if wait_with_timeout "$gpu_pid" 2; then
+            gpu_limit=$(cat 2>/dev/null || echo "N/A")
+        else
+            kill -9 "$gpu_pid" 2>/dev/null || true
+            gpu_limit="N/A (timeout)"
+        fi
+
+        echo "  GPU Limit: ${gpu_limit}W"
+    else
+        echo "  GPU Limit: N/A (nvidia-smi not available)"
+    fi
+
+    echo ""
+    echo "Configuration:"
+    echo "  CPU Server:  $CPU_EPP_SERVER"
+    echo "  CPU Desktop: $CPU_EPP_DESKTOP"
+    echo "  GPU Server:  ${GPU_POWER_LIMIT_SERVER}W"
+    echo "  GPU Desktop: ${GPU_POWER_LIMIT_DESKTOP}W"
+}
+
+cmd_check() {
+    local check_script="$(dirname "$SCRIPT_PATH")/server-mode-check"
+
+    if [[ ! -x "$check_script" ]]; then
+        err "Pre-flight check script not found: $check_script"
+        exit 1
+    fi
+
+    # Run the comprehensive external checker
+    if ! "$check_script"; then
+        exit 1
+    fi
+
+    echo ""
+    echo -e "\033[1mConfiguration:\033[0m"
+    echo "  CPU EPP Server:       $CPU_EPP_SERVER"
+    echo "  CPU EPP Desktop:      $CPU_EPP_DESKTOP"
+    echo "  GPU Power Server:     ${GPU_POWER_LIMIT_SERVER}W"
+    echo "  GPU Power Desktop:    ${GPU_POWER_LIMIT_DESKTOP}W"
+    echo "  Safety Timeout:       ${SAFETY_TIMEOUT}s"
+    echo "  Skip Linger Check:    $SKIP_LINGER_CHECK"
+    echo ""
+    echo -e "\033[1mState Files:\033[0m"
+    echo "  State:                $STATE_FILE"
+    echo "  Script:               $SCRIPT_PATH"
+    echo "  Checker:              $check_script"
+    echo ""
+    echo -e "\033[1mWhat 'server-mode on' will do:\033[0m"
+    echo "  1. Run pre-flight safety checks"
+    echo "  2. Verify SSH connectivity"
+    echo "  3. Set CPU EPP to '$CPU_EPP_SERVER' on ALL cores"
+    echo "  4. Set GPU power limit to ${GPU_POWER_LIMIT_SERVER}W (best-effort)"
+    echo "  5. Switch to multi-user.target (stops desktop)"
+    echo "  6. Verify transition succeeded (multi-user active, DM stopped)"
+    echo ""
+    echo -e "\033[1mExecution Model:\033[0m"
+    echo "  - Runs as systemd transient service (survives terminal death)"
+    echo "  - Uses file-descriptor locks to prevent concurrent execution"
+    echo "  - Fully detached from parent process and PTY"
+    echo ""
+    echo -e "\033[1mRecovery:\033[0m"
+    echo "  - All changes revert on reboot (state in /run)"
+    echo "  - Run 'server-mode off' to restore desktop"
+    echo "  - Safety timer auto-restores after ${SAFETY_TIMEOUT}s if transition hangs"
+    echo ""
+}
+
+# ------------------------------------------------------------------------------
+# Entry Point
+# ------------------------------------------------------------------------------
+
+# Allow script to be sourced by systemd-run
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+    return 0
+fi
+
+case "${1:-status}" in
+    on|enable|enter)
+        cmd_on
+        ;;
+    off|disable|exit)
+        cmd_off
+        ;;
+    status|info)
+        cmd_status
+        ;;
+    check|preflight|dry-run)
+        cmd_check
+        ;;
+    *)
+        echo "Usage: $0 {on|off|status|check}"
+        echo ""
+        echo "Commands:"
+        echo "  on      Enter server mode (stop desktop, low power)"
+        echo "  off     Exit server mode (restore desktop)"
+        echo "  status  Show current state and configuration"
+        echo "  check   Run pre-flight checks without making changes"
+        exit 1
+        ;;
+esac
