@@ -1,9 +1,11 @@
 #!/bin/bash
 
-# Get the current working directory
-current_dir=$(pwd)
+# Configuration
+REPO_DIR="$HOME/Desktop/portable_config"
+MAIN_BRANCH="main"
+WIP_BRANCH="autosave"
+THRESHOLD=10
 
-# Define the list of files and directories to copy
 files_and_dirs=(
     "~/.zshrc"
     "~/.zprofile"
@@ -14,32 +16,79 @@ files_and_dirs=(
     "~/.config/alacritty/alacritty.toml"
 )
 
-# Loop through the list and copy each item to the current directory
-for item in "${files_and_dirs[@]}"; do
-    # Expand the ~ to the full home directory
-    expanded_item=$(eval echo "$item")
+# Ensure the directory exists
+if [ ! -d "$REPO_DIR" ]; then
+    echo "Error: Repository directory $REPO_DIR does not exist."
+    exit 1
+fi
+cd "$REPO_DIR" || exit
 
-    # Check if the file/directory exists
+# Ensure we are on the autosave branch (create it if it doesn't exist)
+if ! git rev-parse --verify $WIP_BRANCH >/dev/null 2>&1; then
+    echo "Creating $WIP_BRANCH branch..."
+    git checkout -b $WIP_BRANCH
+else
+    # Switch to it if we aren't already there
+    current_branch=$(git branch --show-current)
+    if [ "$current_branch" != "$WIP_BRANCH" ]; then
+        git checkout $WIP_BRANCH
+    fi
+fi
+
+echo "Copying config files to $REPO_DIR..."
+
+for item in "${files_and_dirs[@]}"; do
+    expanded_item=$(eval echo "$item")
     if [ -e "$expanded_item" ]; then
-        # If it's a directory, copy it recursively
         if [ -d "$expanded_item" ]; then
-            cp -r "$expanded_item" "$current_dir/"
+            cp -r "$expanded_item" . 
             echo "Copied directory: $expanded_item"
         else
-            # If it's a file, just copy it
-            cp "$expanded_item" "$current_dir/"
+            cp "$expanded_item" .
             echo "Copied file: $expanded_item"
         fi
     else
-        echo "Skipping non-existent file or directory: $expanded_item"
+        echo "Skipping missing: $expanded_item"
     fi
 done
 
-echo "Config backup complete!"
 
-date=$(date +%Y-%m-%d)
-repo=$(echo "$HOME/Desktop/portable_config")
-git -C $repo add .
-git -C $repo commit -m "$date"
-git -C $repo push origin main -q
 
+git add .
+# Only commit if something actually changed
+if ! git diff-index --quiet HEAD --; then
+    git commit -m "Auto-backup: $(date +'%Y-%m-%d %H:%M:%S')"
+    echo "Changes committed to $WIP_BRANCH."
+else
+    echo "No file changes detected."
+fi
+
+# Count how many commits autosave is ahead of main
+count=$(git rev-list --count ${MAIN_BRANCH}..${WIP_BRANCH})
+echo "Backup Status: $count / $THRESHOLD commits until rollup."
+
+if [ "$count" -ge "$THRESHOLD" ]; then
+    echo ">>> Threshold reached! Rolling up history..."
+
+    # Switch to main and pull latest to be safe
+    git checkout $MAIN_BRANCH
+    git pull origin $MAIN_BRANCH -q
+
+    # Squash merge all changes from autosave
+    git merge --squash $WIP_BRANCH
+
+    # Create the clean commit
+    git commit -m "Config Rollup: $(date +%Y-%m-%d)"
+    
+    # Push the clean main branch
+    git push origin $MAIN_BRANCH -q
+    echo ">>> Main branch updated and pushed."
+
+    # Reset autosave to look exactly like main (clears the counter)
+    git checkout $WIP_BRANCH
+    git reset --hard $MAIN_BRANCH
+else
+    # Just push the autosave branch so your work is saved remotely
+    git push origin $WIP_BRANCH -q
+    echo ">>> Backup pushed to $WIP_BRANCH."
+fi
