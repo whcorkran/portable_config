@@ -58,14 +58,12 @@ git add .
 # Only commit if something actually changed
 if ! git diff-index --quiet HEAD --; then
     git commit -m "Auto-backup: $(date +'%Y-%m-%d %H:%M:%S')"
-    echo "Changes committed to $WIP_BRANCH."
 else
     echo "No file changes detected."
 fi
 
 # Count how many commits autosave is ahead of main
 count=$(git rev-list --count ${MAIN_BRANCH}..${WIP_BRANCH})
-echo "Backup Status: $count / $THRESHOLD commits until rollup."
 
 if [ "$count" -ge "$THRESHOLD" ]; then
     echo ">>> Threshold reached! Rolling up history..."
@@ -90,5 +88,4 @@ if [ "$count" -ge "$THRESHOLD" ]; then
 else
     # Just push the autosave branch so your work is saved remotely
     git push origin $WIP_BRANCH -q
-    echo ">>> Backup pushed to $WIP_BRANCH."
 fi
