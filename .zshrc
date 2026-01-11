@@ -1,4 +1,10 @@
 # .zshrc
+
+load-secrets() {
+  source <(op inject -i ~/.config/secrets.env)
+  echo "API keys loaded"
+}
+
 [[ -f ~/.zprofile ]] && source ~/.zprofile
 # >>> conda initialize >>>
 . "$HOME/anaconda3/etc/profile.d/conda.sh"

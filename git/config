@@ -46,6 +46,5 @@
     ui = auto
 [init]
 	defaultBranch = main
-[user]
-	email = hcorkran@seas.upenn.edu
-	name = henry
+[include]
+    path = ~/.config/git_local

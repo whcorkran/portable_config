@@ -17,7 +17,7 @@ set -euo pipefail
 # Configuration (Override in /etc/default/server-mode)
 # ------------------------------------------------------------------------------
 
-readonly VERSION="3.3.0-hardened"
+readonly VERSION="3.4.0"
 readonly SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly RUN_DIR="/run/server-mode"
 readonly STATE_FILE="${RUN_DIR}/state"
@@ -30,7 +30,6 @@ CPU_EPP_DESKTOP="${CPU_EPP_DESKTOP:-balance_performance}"
 GPU_POWER_LIMIT_SERVER="${GPU_POWER_LIMIT_SERVER:-400}"
 GPU_POWER_LIMIT_DESKTOP="${GPU_POWER_LIMIT_DESKTOP:-575}"
 SAFETY_TIMEOUT="${SAFETY_TIMEOUT:-300}"  # 5 minutes for safety margin
-SKIP_LINGER_CHECK="${SKIP_LINGER_CHECK:-0}"
 
 # Load external config if present (before logging setup to catch errors)
 if [[ -f /etc/default/server-mode ]]; then
@@ -104,18 +103,23 @@ apply_gpu_power() {
     # Strategy: Launch in background, kill if hangs, accept failure gracefully
     local min_lim=""
     local gpu_query_pid
+    local tmp_file
+    tmp_file=$(mktemp) || return 1
+    trap "rm -f '$tmp_file'" RETURN
 
     {
-        nvidia-smi -q -d POWER 2>/dev/null | awk '/Min Power Limit/ {print int($5); exit}'
+        nvidia-smi -q -d POWER 2>/dev/null | awk '/Min Power Limit/ {print int($5); exit}' > "$tmp_file"
     } &
     gpu_query_pid=$!
 
     # Wait with timeout
     if wait_with_timeout "$gpu_query_pid" 3; then
-        min_lim=$(cat)
+        min_lim=$(cat "$tmp_file" 2>/dev/null)
+        rm -f "$tmp_file"
     else
         # Timeout or failure - kill and continue without GPU management
         kill -9 "$gpu_query_pid" 2>/dev/null || true
+        rm -f "$tmp_file"
         err "GPU query timed out (driver may be hung)"
         log "Skipping GPU power management - not critical for transition"
         return 0
@@ -147,16 +151,17 @@ apply_gpu_power() {
 wait_with_timeout() {
     local pid=$1
     local timeout_sec=$2
-    local elapsed=0
+    local iterations=$((timeout_sec * 10))  # 0.1s per iteration
+    local i=0
 
-    while ((elapsed < timeout_sec)); do
+    while ((i < iterations)); do
         if ! kill -0 "$pid" 2>/dev/null; then
             # Process finished
             wait "$pid" 2>/dev/null
             return 0
         fi
         sleep 0.1
-        elapsed=$((elapsed + 1))
+        ((i++))
     done
 
     # Timeout exceeded
@@ -313,7 +318,7 @@ EOF
     fi
 
     # Verify display manager actually stopped
-    for dm in gdm gdm3 lightdm sddm; do
+    for dm in gdm gdm3 lightdm sddm lxdm; do
         if systemctl is-active "$dm" &>/dev/null; then
             err "Display manager $dm is still running after isolation!"
             err "Attempting recovery..."
@@ -396,23 +401,9 @@ cmd_on() {
     fi
     ok "Pre-flight checks passed"
 
-    # Linger check with /dev/tty for guaranteed interactivity
+    # Capture user for auditing
     local target_user="${SUDO_USER:-$USER}"
-    if [[ "$SKIP_LINGER_CHECK" != "1" ]] && ! loginctl show-user "$target_user" -p Linger 2>/dev/null | grep -q "yes"; then
-        if [[ -t 0 ]] && [[ -c /dev/tty ]]; then
-            # Interactive mode: prompt user via /dev/tty (bypasses any redirects)
-            echo -e "\033[0;33mWARNING: Linger is NOT enabled for $target_user\033[0m" > /dev/tty
-            echo "Background jobs started in desktop sessions (tmux, screen, etc.) may be killed." > /dev/tty
-            echo "To persist background jobs across logout, run: loginctl enable-linger $target_user" > /dev/tty
-            echo -n "Proceed anyway? [y/N] " > /dev/tty
-            read -r response < /dev/tty
-            [[ "$response" =~ ^[yY] ]] || die "Aborted by user"
-        else
-            # Non-interactive mode: just warn and continue
-            log "WARNING: Linger not enabled for $target_user - background jobs may be terminated"
-            log "Automated execution continuing..."
-        fi
-    fi
+    [[ "$target_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || target_user="unknown"
 
     log "Starting server mode transition..."
 
@@ -486,16 +477,19 @@ cmd_status() {
     if command -v nvidia-smi &>/dev/null; then
         local gpu_limit
         local gpu_pid
+        local tmp_file="/tmp/server-mode-status-$$"
 
-        nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits 2>/dev/null &
+        nvidia-smi --query-gpu=power.limit --format=csv,noheader,nounits > "$tmp_file" 2>/dev/null &
         gpu_pid=$!
 
         if wait_with_timeout "$gpu_pid" 2; then
-            gpu_limit=$(cat 2>/dev/null || echo "N/A")
+            gpu_limit=$(cat "$tmp_file" 2>/dev/null)
+            [[ -z "$gpu_limit" ]] && gpu_limit="N/A"
         else
             kill -9 "$gpu_pid" 2>/dev/null || true
             gpu_limit="N/A (timeout)"
         fi
+        rm -f "$tmp_file"
 
         echo "  GPU Limit: ${gpu_limit}W"
     else
@@ -530,7 +524,6 @@ cmd_check() {
     echo "  GPU Power Server:     ${GPU_POWER_LIMIT_SERVER}W"
     echo "  GPU Power Desktop:    ${GPU_POWER_LIMIT_DESKTOP}W"
     echo "  Safety Timeout:       ${SAFETY_TIMEOUT}s"
-    echo "  Skip Linger Check:    $SKIP_LINGER_CHECK"
     echo ""
     echo -e "\033[1mState Files:\033[0m"
     echo "  State:                $STATE_FILE"

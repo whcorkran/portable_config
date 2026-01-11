@@ -14,6 +14,7 @@ files_and_dirs=(
     "~/.config/tmux/tmux.conf"
     "~/.config/starship.toml"
     "~/.config/alacritty/alacritty.toml"
+    "~/.config/secrets.env"
 )
 
 # Ensure the directory exists
