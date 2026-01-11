@@ -17,7 +17,7 @@ set -euo pipefail
 # Configuration (Override in /etc/default/server-mode)
 # ------------------------------------------------------------------------------
 
-readonly VERSION="3.4.0"
+readonly VERSION="3.5.0"
 readonly SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly RUN_DIR="/run/server-mode"
 readonly STATE_FILE="${RUN_DIR}/state"
@@ -504,6 +504,144 @@ cmd_status() {
     echo "  GPU Desktop: ${GPU_POWER_LIMIT_DESKTOP}W"
 }
 
+cmd_console() {
+    # Pure bash interactive console - no ncurses dependencies
+    local refresh_interval=2
+
+    # Terminal control sequences
+    local clear_screen=$'\033[2J\033[H'
+    local bold=$'\033[1m'
+    local dim=$'\033[2m'
+    local green=$'\033[32m'
+    local yellow=$'\033[33m'
+    local blue=$'\033[34m'
+    local cyan=$'\033[36m'
+    local red=$'\033[31m'
+    local reset=$'\033[0m'
+
+    # Hide cursor, restore on exit
+    tput civis 2>/dev/null
+    trap 'tput cnorm 2>/dev/null; echo' EXIT
+
+    while true; do
+        # Gather system info
+        local state="DESKTOP"
+        local state_color="$blue"
+        local uptime_str="—"
+        local activated_by="—"
+
+        if [[ -f "$STATE_FILE" ]]; then
+            state="SERVER"
+            state_color="$green"
+            local start_time
+            start_time=$(awk -F= '/^START_TIME/ {print $2}' "$STATE_FILE" 2>/dev/null || echo "0")
+            local elapsed=$(( $(date +%s) - start_time ))
+            local hours=$((elapsed / 3600))
+            local mins=$(((elapsed % 3600) / 60))
+            uptime_str="${hours}h ${mins}m"
+            activated_by=$(awk -F= '/^USER/ {print $2}' "$STATE_FILE" 2>/dev/null || echo "unknown")
+        fi
+
+        # CPU & Memory
+        local cpu_usage
+        cpu_usage=$(awk '/^cpu / {printf "%.0f", 100 - ($5 * 100 / ($2+$3+$4+$5+$6+$7+$8))}' /proc/stat 2>/dev/null || echo "?")
+        local mem_info
+        mem_info=$(free -g 2>/dev/null | awk '/^Mem:/ {printf "%d / %d GB", $3, $2}')
+        local cpu_epp
+        cpu_epp=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo "N/A")
+
+        # GPU (with timeout protection)
+        local gpu_util="—" gpu_mem="—" gpu_power="—"
+        if command -v nvidia-smi &>/dev/null; then
+            local gpu_info
+            gpu_info=$(timeout 1 nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,power.draw --format=csv,noheader,nounits 2>/dev/null || echo "")
+            if [[ -n "$gpu_info" ]]; then
+                gpu_util=$(echo "$gpu_info" | awk -F', ' '{printf "%d%%", $1}')
+                gpu_mem=$(echo "$gpu_info" | awk -F', ' '{printf "%.1f / %.0f GB", $2/1024, $3/1024}')
+                gpu_power=$(echo "$gpu_info" | awk -F', ' '{printf "%.0fW", $4}')
+            fi
+        fi
+
+        # Active tmux sessions
+        local tmux_sessions=""
+        if command -v tmux &>/dev/null; then
+            tmux_sessions=$(tmux list-sessions -F "#{session_name}: #{session_windows} win" 2>/dev/null | head -3 || echo "")
+        fi
+
+        # Active SSH connections (excluding our own)
+        local ssh_connections
+        ssh_connections=$(who 2>/dev/null | grep -v "tty[0-9]" | awk '{print $1"@"$5}' | head -3 || echo "")
+
+        # Build display
+        printf '%s' "$clear_screen"
+
+        echo "${bold}╭─────────────────────────────────────────────────────────╮${reset}"
+        printf "${bold}│${reset}  ${state_color}${bold}%-14s${reset}                          ${dim}v%-8s${reset}${bold}│${reset}\n" "$state MODE" "$VERSION"
+        echo "${bold}├─────────────────────────────────────────────────────────┤${reset}"
+        printf "${bold}│${reset}  ${dim}Uptime:${reset}      %-40s${bold}│${reset}\n" "$uptime_str"
+        printf "${bold}│${reset}  ${dim}Activated:${reset}   %-40s${bold}│${reset}\n" "$activated_by"
+        printf "${bold}│${reset}  ${dim}CPU EPP:${reset}     %-40s${bold}│${reset}\n" "$cpu_epp"
+        echo "${bold}├─────────────────────────────────────────────────────────┤${reset}"
+        printf "${bold}│${reset}  ${cyan}SYSTEM${reset}                                              ${bold}│${reset}\n"
+        printf "${bold}│${reset}    CPU:  %-3s%%          Mem: %-24s${bold}│${reset}\n" "$cpu_usage" "$mem_info"
+        if [[ "$gpu_util" != "—" ]]; then
+            printf "${bold}│${reset}    GPU:  %-6s        VRAM: %-22s${bold}│${reset}\n" "$gpu_util" "$gpu_mem"
+            printf "${bold}│${reset}    Power: %-44s${bold}│${reset}\n" "$gpu_power"
+        fi
+        echo "${bold}├─────────────────────────────────────────────────────────┤${reset}"
+        printf "${bold}│${reset}  ${cyan}SESSIONS${reset}                                            ${bold}│${reset}\n"
+        if [[ -n "$tmux_sessions" ]]; then
+            while IFS= read -r sess; do
+                printf "${bold}│${reset}    ${green}tmux:${reset} %-44s${bold}│${reset}\n" "$sess"
+            done <<< "$tmux_sessions"
+        else
+            printf "${bold}│${reset}    ${dim}No tmux sessions${reset}                                  ${bold}│${reset}\n"
+        fi
+        if [[ -n "$ssh_connections" ]]; then
+            while IFS= read -r conn; do
+                printf "${bold}│${reset}    ${yellow}ssh:${reset}  %-44s${bold}│${reset}\n" "$conn"
+            done <<< "$ssh_connections"
+        fi
+        echo "${bold}├─────────────────────────────────────────────────────────┤${reset}"
+        printf "${bold}│${reset}  ${bold}[R]${reset}estore Desktop    ${bold}[S]${reset}hutdown    ${bold}[Q]${reset}uit              ${bold}│${reset}\n"
+        echo "${bold}╰─────────────────────────────────────────────────────────╯${reset}"
+
+        # Read single keypress with timeout for refresh
+        local key=""
+        read -rsn1 -t "$refresh_interval" key || true
+
+        case "${key,,}" in  # lowercase
+            r)
+                tput cnorm 2>/dev/null
+                printf '\n%s' "${yellow}Restore desktop? [y/N]: ${reset}"
+                read -rsn1 confirm
+                if [[ "${confirm,,}" == "y" ]]; then
+                    trap - EXIT
+                    echo ""
+                    exec "$SCRIPT_PATH" restore
+                fi
+                ;;
+            s)
+                tput cnorm 2>/dev/null
+                printf '\n%s' "${red}Shut down computer? [y/N]: ${reset}"
+                read -rsn1 confirm
+                if [[ "${confirm,,}" == "y" ]]; then
+                    trap - EXIT
+                    echo ""
+                    echo "Shutting down..."
+                    systemctl poweroff
+                fi
+                ;;
+            q)
+                tput cnorm 2>/dev/null
+                trap - EXIT
+                echo ""
+                exit 0
+                ;;
+        esac
+    done
+}
+
 cmd_check() {
     local check_script="$(dirname "$SCRIPT_PATH")/server-mode-check"
 
@@ -545,7 +683,7 @@ cmd_check() {
     echo ""
     echo -e "\033[1mRecovery:\033[0m"
     echo "  - All changes revert on reboot (state in /run)"
-    echo "  - Run 'server-mode off' to restore desktop"
+    echo "  - Run 'server-mode restore' to restore desktop"
     echo "  - Safety timer auto-restores after ${SAFETY_TIMEOUT}s if transition hangs"
     echo ""
 }
@@ -563,23 +701,27 @@ case "${1:-status}" in
     on|enable|enter)
         cmd_on
         ;;
-    off|disable|exit)
+    restore|off|disable|exit)
         cmd_off
         ;;
     status|info)
         cmd_status
         ;;
+    console|tty|ui)
+        cmd_console
+        ;;
     check|preflight|dry-run)
         cmd_check
         ;;
     *)
-        echo "Usage: $0 {on|off|status|check}"
+        echo "Usage: $0 {on|restore|status|console|check}"
         echo ""
         echo "Commands:"
-        echo "  on      Enter server mode (stop desktop, low power)"
-        echo "  off     Exit server mode (restore desktop)"
-        echo "  status  Show current state and configuration"
-        echo "  check   Run pre-flight checks without making changes"
+        echo "  on       Enter server mode (stop desktop, low power)"
+        echo "  restore  Exit server mode (restore desktop)"
+        echo "  status   Show current state and configuration"
+        echo "  console  Interactive dashboard with quick actions"
+        echo "  check    Run pre-flight checks without making changes"
         exit 1
         ;;
 esac
