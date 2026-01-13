@@ -57,7 +57,8 @@ for item in "${files_and_dirs[@]}"; do
     fi
 done
 
-
+# Remove empty directories (git doesn't track them anyway)
+find "$REPO_DIR" -type d -empty -not -path "$REPO_DIR/.git/*" -delete 2>/dev/null
 
 git add .
 # Only commit if something actually changed
@@ -90,6 +91,8 @@ if [ "$count" -ge "$THRESHOLD" ]; then
     # Reset autosave to look exactly like main (clears the counter)
     git checkout $WIP_BRANCH
     git reset --hard $MAIN_BRANCH
+    git push origin $WIP_BRANCH --force -q
+    echo ">>> Autosave branch reset and synced."
 else
     # Just push the autosave branch so your work is saved remotely
     git push origin $WIP_BRANCH -q
