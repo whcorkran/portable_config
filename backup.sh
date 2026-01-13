@@ -41,11 +41,15 @@ echo "Copying config files to $REPO_DIR..."
 for item in "${files_and_dirs[@]}"; do
     expanded_item=$(eval echo "$item")
     if [ -e "$expanded_item" ]; then
+        basename_item=$(basename "$expanded_item")
+        # Remove existing copy first to avoid nested directory issues
+        rm -rf "$REPO_DIR/$basename_item"
+
         if [ -d "$expanded_item" ]; then
-            cp -r "$expanded_item" . 
+            cp -r "$expanded_item" "$REPO_DIR/$basename_item"
             echo "Copied directory: $expanded_item"
         else
-            cp "$expanded_item" .
+            cp "$expanded_item" "$REPO_DIR/$basename_item"
             echo "Copied file: $expanded_item"
         fi
     else

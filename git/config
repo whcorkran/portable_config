@@ -48,3 +48,5 @@
 	defaultBranch = main
 [include]
     path = ~/.config/git_local
+[commit]
+	gpgsign = false
