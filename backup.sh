@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-REPO_DIR="$HOME/Desktop/portable_config"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 BRANCH="main"
 
 # Detect OS and set VS Code path

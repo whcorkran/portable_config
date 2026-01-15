@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Configuration - must match backup.sh
-REPO_DIR="$HOME/Desktop/portable_config"
+# Configuration - auto-detect repo location
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Detect OS and set VS Code path
 if [[ "$OSTYPE" == "darwin"* ]]; then
