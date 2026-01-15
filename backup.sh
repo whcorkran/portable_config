@@ -4,6 +4,13 @@
 REPO_DIR="$HOME/Desktop/portable_config"
 BRANCH="main"
 
+# Detect OS and set VS Code path
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    VSCODE_USER="$HOME/Library/Application Support/Code/User"
+else
+    VSCODE_USER="$HOME/.config/Code/User"
+fi
+
 files_and_dirs=(
     "~/.zshrc"
     "~/.zprofile"
@@ -13,9 +20,13 @@ files_and_dirs=(
     "~/.config/starship.toml"
     "~/.config/alacritty/alacritty.toml"
     "~/.config/secrets.env"
-    "~/.config/Code/User/settings.json"
-    "~/.config/Code/User/keybindings.json"
-    "~/.config/Code/User/snippets"
+)
+
+# VS Code files (use detected path)
+vscode_files=(
+    "settings.json"
+    "keybindings.json"
+    "snippets"
 )
 
 # Ensure the directory exists
@@ -38,6 +49,11 @@ for item in "${files_and_dirs[@]}"; do
     rel_path="${expanded_item#$HOME/}"
     expected_paths+=("$rel_path")
 done
+# Add VS Code paths (stored in standardized location)
+for item in "${vscode_files[@]}"; do
+    expected_paths+=(".config/Code/User/$item")
+done
+expected_paths+=(".config/Code/extensions.txt")
 
 # Clean up: remove tracked files that are no longer in our list
 echo "Cleaning up stale backups..."
@@ -110,6 +126,21 @@ for item in "${files_and_dirs[@]}"; do
         echo "Copied: $rel_path"
     else
         echo "Skipping missing: $expanded_item"
+    fi
+done
+
+# Copy VS Code files (from OS-specific location to standardized repo path)
+for item in "${vscode_files[@]}"; do
+    source_path="$VSCODE_USER/$item"
+    dest_path="$REPO_DIR/.config/Code/User/$item"
+
+    if [ -e "$source_path" ]; then
+        mkdir -p "$(dirname "$dest_path")"
+        rm -rf "$dest_path"
+        cp -r "$source_path" "$dest_path"
+        echo "Copied: .config/Code/User/$item"
+    else
+        echo "Skipping missing: $source_path"
     fi
 done
 

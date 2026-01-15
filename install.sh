@@ -3,6 +3,13 @@
 # Configuration - must match backup.sh
 REPO_DIR="$HOME/Desktop/portable_config"
 
+# Detect OS and set VS Code path
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    VSCODE_USER="$HOME/Library/Application Support/Code/User"
+else
+    VSCODE_USER="$HOME/.config/Code/User"
+fi
+
 # Same list as backup.sh - paths relative to $HOME
 files_and_dirs=(
     "~/.zshrc"
@@ -13,9 +20,13 @@ files_and_dirs=(
     "~/.config/starship.toml"
     "~/.config/alacritty/alacritty.toml"
     "~/.config/secrets.env"
-    "~/.config/Code/User/settings.json"
-    "~/.config/Code/User/keybindings.json"
-    "~/.config/Code/User/snippets"
+)
+
+# VS Code files (stored in repo at .config/Code/User/, installed to OS-specific path)
+vscode_files=(
+    "settings.json"
+    "keybindings.json"
+    "snippets"
 )
 
 # Ensure repo directory exists
@@ -74,6 +85,60 @@ for item in "${files_and_dirs[@]}"; do
                 dest_file_dir=$(dirname "$dest_file")
                 mkdir -p "$dest_file_dir"
 
+                if [ -e "$dest_file" ]; then
+                    echo ""
+                    echo "  Warning: $dest_file already exists."
+                    read -p "  Replace it? [y/N] " -n 1 -r
+                    echo ""
+                    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                        echo "  Skipped: $inner_rel"
+                        continue
+                    fi
+                fi
+                cp "$src_file" "$dest_file"
+                echo "  Installed: $inner_rel"
+            done < <(find "$source_path" -type f -print0)
+        fi
+    fi
+done
+
+# Install VS Code config files (from standardized repo path to OS-specific location)
+echo ""
+echo "Installing VS Code settings..."
+for item in "${vscode_files[@]}"; do
+    source_path="$REPO_DIR/.config/Code/User/$item"
+    dest_path="$VSCODE_USER/$item"
+
+    if [ ! -e "$source_path" ]; then
+        echo "Skipping (not in backup): $item"
+        continue
+    fi
+
+    mkdir -p "$VSCODE_USER"
+
+    if [ -f "$source_path" ]; then
+        if [ -e "$dest_path" ]; then
+            echo ""
+            echo "Warning: $dest_path already exists."
+            read -p "Replace it? [y/N] " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "Skipped: $item"
+                continue
+            fi
+        fi
+        cp "$source_path" "$dest_path"
+        echo "Installed: $item"
+    elif [ -d "$source_path" ]; then
+        if [ ! -d "$dest_path" ]; then
+            cp -r "$source_path" "$dest_path"
+            echo "Installed directory: $item"
+        else
+            echo "Merging into existing: $item"
+            while IFS= read -r -d '' src_file; do
+                inner_rel="${src_file#$source_path/}"
+                dest_file="$dest_path/$inner_rel"
+                mkdir -p "$(dirname "$dest_file")"
                 if [ -e "$dest_file" ]; then
                     echo ""
                     echo "  Warning: $dest_file already exists."
