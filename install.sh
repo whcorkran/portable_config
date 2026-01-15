@@ -98,8 +98,8 @@ for item in "${files_and_dirs[@]}"; do
                 if [ -e "$dest_file" ]; then
                     echo ""
                     echo "  Warning: $dest_file already exists."
-                    read -p "  Replace it? [y/N] " -n 1 -r
-                    echo ""
+                    read -p "  Replace it? [y/N] " -n 1 -r < /dev/tty
+                    echo "" > /dev/tty
                     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                         echo "  Skipped: $inner_rel"
                         continue
@@ -152,8 +152,8 @@ for item in "${vscode_files[@]}"; do
                 if [ -e "$dest_file" ]; then
                     echo ""
                     echo "  Warning: $dest_file already exists."
-                    read -p "  Replace it? [y/N] " -n 1 -r
-                    echo ""
+                    read -p "  Replace it? [y/N] " -n 1 -r < /dev/tty
+                    echo "" > /dev/tty
                     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                         echo "  Skipped: $inner_rel"
                         continue

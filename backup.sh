@@ -166,7 +166,15 @@ if ! git diff --cached --quiet; then
 
     # Push to remote
     if git remote get-url origin &>/dev/null; then
-        git push origin "$BRANCH" && echo "Pushed to remote."
+        echo ""
+        git --no-pager log -1 --stat
+        echo ""
+        read -p "Push to remote? (y/n): " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            git push origin "$BRANCH" && echo "Pushed to remote."
+        else
+            echo "Push skipped. Run 'git reset --soft HEAD~1' to undo the commit."
+        fi
     fi
 else
     echo "No changes to commit."
