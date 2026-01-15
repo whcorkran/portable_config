@@ -13,6 +13,9 @@ files_and_dirs=(
     "~/.config/starship.toml"
     "~/.config/alacritty/alacritty.toml"
     "~/.config/secrets.env"
+    "~/.config/Code/User/settings.json"
+    "~/.config/Code/User/keybindings.json"
+    "~/.config/Code/User/snippets"
 )
 
 # Ensure repo directory exists
