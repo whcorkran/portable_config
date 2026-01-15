@@ -55,6 +55,11 @@ for item in "${files_and_dirs[@]}"; do
     dest_dir=$(dirname "$dest_path")
     mkdir -p "$dest_dir"
 
+    # Fix SSH directory permissions (must be 700)
+    if [[ "$dest_dir" == *".ssh"* ]]; then
+        chmod 700 "$HOME/.ssh" 2>/dev/null
+    fi
+
     # Handle files: just overwrite the specific file
     if [ -f "$source_path" ]; then
         if [ -e "$dest_path" ]; then
@@ -68,6 +73,10 @@ for item in "${files_and_dirs[@]}"; do
             fi
         fi
         cp "$source_path" "$dest_path"
+        # Fix SSH config permissions (must be 600)
+        if [[ "$dest_path" == *".ssh/config" ]]; then
+            chmod 600 "$dest_path"
+        fi
         echo "Installed file: $rel_path"
 
     # Handle directories: merge contents, only prompt for conflicting files
@@ -161,7 +170,7 @@ done
 extensions_file="$REPO_DIR/.config/Code/extensions.txt"
 if [ -f "$extensions_file" ] && command -v code &>/dev/null; then
     echo ""
-    echo "Found VS Code extensions list ($(wc -l < "$extensions_file") extensions)."
+    echo "Found VS Code extensions list ($(wc -l < "$extensions_file" | tr -d ' ') extensions)."
     read -p "Install VS Code extensions? [y/N] " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then

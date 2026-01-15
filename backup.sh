@@ -153,7 +153,7 @@ if command -v code &>/dev/null; then
     echo "Exporting VS Code extensions list..."
     mkdir -p "$REPO_DIR/.config/Code"
     code --list-extensions > "$REPO_DIR/.config/Code/extensions.txt"
-    echo "Exported $(wc -l < "$REPO_DIR/.config/Code/extensions.txt") extensions"
+    echo "Exported $(wc -l < "$REPO_DIR/.config/Code/extensions.txt" | tr -d ' ') extensions"
 fi
 
 # Stage all changes
