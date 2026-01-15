@@ -41,7 +41,7 @@ fi
 zstyle ':fzf-tab:*' use-fzf-default-opts no
 
 source ~/opt/fzf-tab/fzf-tab.plugin.zsh # tab completion fzf, needs to be git cloned!
-# alacritty ubuntu compatibility fix: sed -i '83s/^/#/' ~/opt/fzf-tab/lib/-ftb-fzf
+# ubuntu compatibility fix: sed -i '83s/^/#/' ~/opt/fzf-tab/lib/-ftb-fzf
 
 source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh # suggestions
 source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh #syntax
