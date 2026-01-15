@@ -7,6 +7,18 @@ load-secrets() {
 
 [[ -f ~/.zprofile ]] && source ~/.zprofile
 
+# === PATH SETUP ===
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS: homebrew nvim or standard install
+    export PATH="/opt/homebrew/bin:$PATH"
+else
+    # Linux: local nvim build
+    export PATH="$HOME/opt/nvim-linux-x86_64/bin:$PATH"
+fi
+export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.bun/bin:$PATH"
+export PATH="$HOME/.opencode/bin:$PATH"
+
 # >>> conda initialize >>>
 if [[ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]]; then
     . "$HOME/anaconda3/etc/profile.d/conda.sh"
@@ -212,22 +224,5 @@ n ()
     }
 }
 
-# PATH setup
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS: homebrew nvim or standard install
-    export PATH="/opt/homebrew/bin:$PATH"
-else
-    # Linux: local nvim build
-    export PATH="$HOME/opt/nvim-linux-x86_64/bin:$PATH"
-fi
-export PATH="$HOME/.local/bin:$PATH"
-
 # bun completions
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
-
-# bun
-export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
-
-# opencode
-export PATH="$HOME/.opencode/bin:$PATH"

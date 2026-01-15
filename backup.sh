@@ -1,5 +1,31 @@
 #!/bin/bash
 
+# Show help if requested
+if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+    echo "Usage: ./backup.sh [files...]"
+    echo ""
+    echo "Backup configuration files to this repository."
+    echo ""
+    echo "Options:"
+    echo "  (no arguments)     Backup all configured files"
+    echo "  [files...]         Backup only files matching the arguments"
+    echo "  -h, --help         Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  ./backup.sh                    # Backup everything"
+    echo "  ./backup.sh zshrc zprofile     # Backup only zsh config files"
+    echo "  ./backup.sh nvim               # Backup only nvim config"
+    echo "  ./backup.sh vscode             # Backup only VS Code config"
+    echo "  ./backup.sh tmux starship      # Backup multiple specific configs"
+    echo ""
+    echo "Available files:"
+    echo "  - zshrc, zprofile"
+    echo "  - ssh"
+    echo "  - git, nvim, tmux, starship, alacritty"
+    echo "  - vscode (or 'code')"
+    exit 0
+fi
+
 # Configuration
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 BRANCH="main"
@@ -11,7 +37,8 @@ else
     VSCODE_USER="$HOME/.config/Code/User"
 fi
 
-files_and_dirs=(
+# All available files and directories
+all_files_and_dirs=(
     "~/.zshrc"
     "~/.zprofile"
     "~/.ssh/config"
@@ -24,11 +51,55 @@ files_and_dirs=(
 )
 
 # VS Code files (use detected path)
-vscode_files=(
+all_vscode_files=(
     "settings.json"
     "keybindings.json"
     "snippets"
 )
+
+# Process arguments to filter what to backup
+files_and_dirs=()
+vscode_files=()
+backup_vscode=false
+
+if [ $# -eq 0 ]; then
+    # No arguments: backup everything
+    files_and_dirs=("${all_files_and_dirs[@]}")
+    vscode_files=("${all_vscode_files[@]}")
+    backup_vscode=true
+else
+    # Arguments provided: only backup matching items
+    echo "Selective backup mode: only backing up specified files"
+    for arg in "$@"; do
+        # Check if argument is "vscode" or "code"
+        if [[ "$arg" == "vscode" ]] || [[ "$arg" == "code" ]]; then
+            vscode_files=("${all_vscode_files[@]}")
+            backup_vscode=true
+            echo "  - Including VS Code config"
+            continue
+        fi
+
+        # Match against regular files/dirs
+        matched=false
+        for item in "${all_files_and_dirs[@]}"; do
+            # Match if the argument appears anywhere in the path
+            if [[ "$item" == *"$arg"* ]]; then
+                files_and_dirs+=("$item")
+                echo "  - Including: $item"
+                matched=true
+            fi
+        done
+
+        if [ "$matched" = false ]; then
+            echo "  - Warning: No match found for '$arg'"
+        fi
+    done
+
+    if [ ${#files_and_dirs[@]} -eq 0 ] && [ ${#vscode_files[@]} -eq 0 ]; then
+        echo "Error: No files matched the provided arguments."
+        exit 1
+    fi
+fi
 
 # Ensure the directory exists
 if [ ! -d "$REPO_DIR" ]; then
@@ -148,8 +219,8 @@ done
 # Remove empty directories
 find "$REPO_DIR" -type d -empty -not -path "$REPO_DIR/.git/*" -delete 2>/dev/null
 
-# Export VS Code extensions list
-if command -v code &>/dev/null; then
+# Export VS Code extensions list (only if backing up VS Code)
+if [ "$backup_vscode" = true ] && command -v code &>/dev/null; then
     echo "Exporting VS Code extensions list..."
     mkdir -p "$REPO_DIR/.config/Code"
     code --list-extensions > "$REPO_DIR/.config/Code/extensions.txt"
