@@ -14,6 +14,7 @@ fi
 files_and_dirs=(
     "~/.zshrc"
     "~/.zprofile"
+    "~/.ssh/config"
     "~/.config/git"
     "~/.config/nvim"
     "~/.config/tmux/tmux.conf"
