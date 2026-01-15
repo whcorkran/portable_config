@@ -30,6 +30,12 @@ vscode_files=(
     "snippets"
 )
 
+# Directories to replace entirely (not merge) - just the directory name
+replace_dirs=(
+    "nvim"
+    "git"
+)
+
 # Ensure repo directory exists
 if [ ! -d "$REPO_DIR" ]; then
     echo "Error: Repository directory $REPO_DIR does not exist."
@@ -79,12 +85,35 @@ for item in "${files_and_dirs[@]}"; do
         fi
         echo "Installed file: $rel_path"
 
-    # Handle directories: merge contents, only prompt for conflicting files
+    # Handle directories
     elif [ -d "$source_path" ]; then
+        # Check if this directory should be replaced entirely
+        dir_name=$(basename "$source_path")
+        should_replace=false
+        for replace_dir in "${replace_dirs[@]}"; do
+            if [[ "$dir_name" == "$replace_dir" ]]; then
+                should_replace=true
+                break
+            fi
+        done
+
         if [ ! -d "$dest_path" ]; then
             # Destination doesn't exist, just copy the whole directory
             cp -r "$source_path" "$dest_path"
             echo "Installed directory: $rel_path"
+        elif [ "$should_replace" = true ]; then
+            # Replace entire directory (nvim, git, etc.)
+            echo ""
+            echo "Warning: $dest_path already exists."
+            read -p "Replace entire directory? [y/N] " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "Skipped: $rel_path"
+                continue
+            fi
+            rm -rf "$dest_path"
+            cp -r "$source_path" "$dest_path"
+            echo "Replaced directory: $rel_path"
         else
             # Destination exists, merge by copying files individually
             echo "Merging into existing: $rel_path"

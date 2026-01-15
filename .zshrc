@@ -6,8 +6,15 @@ load-secrets() {
 }
 
 [[ -f ~/.zprofile ]] && source ~/.zprofile
+
 # >>> conda initialize >>>
-. "$HOME/anaconda3/etc/profile.d/conda.sh"
+if [[ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]]; then
+    . "$HOME/anaconda3/etc/profile.d/conda.sh"
+elif [[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]]; then
+    . "$HOME/miniconda3/etc/profile.d/conda.sh"
+elif [[ -f "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh" ]]; then
+    . "/opt/homebrew/Caskroom/miniconda/base/etc/profile.d/conda.sh"
+fi
 # <<< conda initialize <<<
 
 # === EVAL ===
@@ -19,11 +26,19 @@ eval "$(zoxide init zsh)" #zoxide
 source ~/.fzf.zsh >/dev/null 2>&1 #fzf
 
 # Tab Completion
-fpath=(
-  /usr/share/zsh/site-functions
-  /usr/share/zsh/vendor-completions
-  $fpath
-)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    fpath=(
+        /opt/homebrew/share/zsh/site-functions
+        /opt/homebrew/share/zsh-completions
+        $fpath
+    )
+else
+    fpath=(
+        /usr/share/zsh/site-functions
+        /usr/share/zsh/vendor-completions
+        $fpath
+    )
+fi
 autoload -Uz compinit; compinit -u
 zstyle ':completion:*:git-checkout:*' sort false
 zstyle ':completion:*:descriptions' format '[%d]'
@@ -43,8 +58,14 @@ zstyle ':fzf-tab:*' use-fzf-default-opts no
 source ~/opt/fzf-tab/fzf-tab.plugin.zsh # tab completion fzf, needs to be git cloned!
 # ubuntu compatibility fix: sed -i '83s/^/#/' ~/opt/fzf-tab/lib/-ftb-fzf
 
-source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh # suggestions
-source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh #syntax
+# zsh plugins (OS-specific paths)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    source /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
+    source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
+else
+    source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
+    source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
+fi
 
 # -- ghostty zsh compatibility
 # bindkey "^[b" backward-word
@@ -67,7 +88,11 @@ bindkey '\e[1;5C' end-of-line
 alias vi="nvim"
 alias c="clear"
 alias ls="eza --icons"
-alias cat="batcat" # ubuntu
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    alias cat="bat"
+else
+    alias cat="batcat"
+fi
 
 # -- tmux --
 alias tls='tmux list-sessions'
@@ -85,7 +110,11 @@ alias cdg='cd $(groot)'
 # sexy working tree graph
 alias gtree="git log --graph --decorate --all --pretty=format:'%C(auto)%h %C(blue)%ad %Creset)%s %C(green)(%an)%C(reset)' --date=short"
 # pipe to clipboard
-alias copy='xsel -b'
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    alias copy='pbcopy'
+else
+    alias copy='xsel -b'
+fi
 
 # === SHELL SCRIPTS ===
 # --- tmux pane title updater ---
@@ -184,15 +213,21 @@ n ()
 }
 
 # PATH setup
-export PATH="$HOME/opt/nvim-linux-x86_64/bin:$PATH"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS: homebrew nvim or standard install
+    export PATH="/opt/homebrew/bin:$PATH"
+else
+    # Linux: local nvim build
+    export PATH="$HOME/opt/nvim-linux-x86_64/bin:$PATH"
+fi
 export PATH="$HOME/.local/bin:$PATH"
 
 # bun completions
-[ -s "/home/henry/.bun/_bun" ] && source "/home/henry/.bun/_bun"
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
 # opencode
-export PATH=/home/henry/.opencode/bin:$PATH
+export PATH="$HOME/.opencode/bin:$PATH"
