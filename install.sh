@@ -91,5 +91,23 @@ for item in "${files_and_dirs[@]}"; do
     fi
 done
 
+# Install VS Code extensions
+extensions_file="$REPO_DIR/.config/Code/extensions.txt"
+if [ -f "$extensions_file" ] && command -v code &>/dev/null; then
+    echo ""
+    echo "Found VS Code extensions list ($(wc -l < "$extensions_file") extensions)."
+    read -p "Install VS Code extensions? [y/N] " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        while read -r extension; do
+            echo "Installing: $extension"
+            code --install-extension "$extension" --force 2>/dev/null
+        done < "$extensions_file"
+        echo "Extensions installed."
+    else
+        echo "Skipped VS Code extensions."
+    fi
+fi
+
 echo ""
 echo "Installation complete."

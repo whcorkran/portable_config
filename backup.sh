@@ -116,6 +116,14 @@ done
 # Remove empty directories
 find "$REPO_DIR" -type d -empty -not -path "$REPO_DIR/.git/*" -delete 2>/dev/null
 
+# Export VS Code extensions list
+if command -v code &>/dev/null; then
+    echo "Exporting VS Code extensions list..."
+    mkdir -p "$REPO_DIR/.config/Code"
+    code --list-extensions > "$REPO_DIR/.config/Code/extensions.txt"
+    echo "Exported $(wc -l < "$REPO_DIR/.config/Code/extensions.txt") extensions"
+fi
+
 # Stage all changes
 git add -A
 
