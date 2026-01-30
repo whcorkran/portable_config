@@ -79,21 +79,24 @@ else
     source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
 fi
 
-# -- ghostty zsh compatibility
-# bindkey "^[b" backward-word
-# bindkey "^[f" forward-word
-# bindkey "^A" beginning-of-line
-# bindkey "^E" end-of-line
-# bindkey "^[[3;3~" kill-word
-
-# -- xterm navigation sequences
-bindkey '\e[D' backward-char
-bindkey '\e[C' forward-char
-bindkey '\e[1;3D' backward-word
-bindkey '\e[1;3C' forward-word
-bindkey '\e[1;5D' beginning-of-line
-bindkey '\e[1;5C' end-of-line
-# alt/ctrl delete are handled by terminal emulator
+# -- terminal key bindings (OS-specific)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS: ghostty bindings
+    bindkey "^[b" backward-word
+    bindkey "^[f" forward-word
+    bindkey "^A" beginning-of-line
+    bindkey "^E" end-of-line
+    bindkey "^[[3;3~" kill-word
+else
+    # Linux: xterm navigation sequences
+    bindkey '\e[D' backward-char
+    bindkey '\e[C' forward-char
+    bindkey '\e[1;3D' backward-word
+    bindkey '\e[1;3C' forward-word
+    bindkey '\e[1;5D' beginning-of-line
+    bindkey '\e[1;5C' end-of-line
+    # alt/ctrl delete are handled by terminal emulator
+fi
 
 
 # === ALIASES ===

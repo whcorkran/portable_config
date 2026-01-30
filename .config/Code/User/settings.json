@@ -1,5 +1,5 @@
 {
-  "workbench.colorTheme": "One Dark Pro Night Flat",
+  "workbench.colorTheme": "Dracula Theme",
   "python.defaultInterpreterPath": "/bin/python3",
   "workbench.productIconTheme": "fluent-icons",
 
@@ -22,10 +22,11 @@
   "workbench.secondarySideBar.showLabels": false,
 
   // === TYPOGRAPHY ===
-  "editor.fontFamily": "JetBrains Mono Nerd Font Medium",
-  "editor.fontSize": 13,
+  "editor.fontFamily": "JetBrains Mono Nerd Font Light",
+  "editor.fontSize": 12,
   "editor.fontLigatures": true,
-  "editor.lineHeight": 1.4,
+  "editor.lineHeight": 1.7,
+  "editor.letterSpacing": 0.3,
   "editor.cursorBlinking": "blink",
   "editor.cursorStyle": "line",
 
@@ -47,7 +48,7 @@
 
   // === TERMINAL ===
   "terminal.integrated.fontFamily": "'JetBrains Mono', monospace",
-  "terminal.integrated.fontSize": 13,
+  "terminal.integrated.fontSize": 12,
 
   // === SEARCH ===
   "search.exclude": {
@@ -61,7 +62,7 @@
   "search.smartCase": true,
 
   // === DEBUGGING ===
-  "debug.console.fontSize": 13,
+  "debug.console.fontSize": 12,
   "debug.internalConsoleOptions": "openOnSessionStart",
   "debug.openDebug": "openOnDebugBreak",
   "debug.showBreakpointsInOverviewRuler": true,
@@ -95,7 +96,6 @@
   },
 
   // === C/C++ (clangd + codelldb) ===
-  "C_Cpp.intelliSenseEngine": "disabled",
   "clangd.path": "/home/henry/.config/Code/User/globalStorage/llvm-vs-code-extensions.vscode-clangd/install/21.1.0/clangd_21.1.0/bin/clangd",
   "clangd.arguments": [
     "--query-driver=/usr/bin/g++,/usr/bin/clang++",

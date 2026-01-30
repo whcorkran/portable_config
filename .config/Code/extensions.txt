@@ -2,11 +2,14 @@ charliermarsh.ruff
 christian-kohler.path-intellisense
 dbaeumer.vscode-eslint
 detachhead.basedpyright
+dracula-theme.theme-dracula
 eamodio.gitlens
+enkia.tokyo-night
 esbenp.prettier-vscode
 formulahendry.auto-rename-tag
 llvm-vs-code-extensions.vscode-clangd
 miguelsolorio.fluent-icons
+ms-azuretools.vscode-containers
 ms-python.debugpy
 ms-python.python
 ms-python.vscode-pylance
@@ -18,6 +21,7 @@ ms-vscode.cmake-tools
 ms-vscode.remote-explorer
 ms-vsliveshare.vsliveshare
 robbowen.synthwave-vscode
+sdras.night-owl
 usernamehw.errorlens
 vadimcn.vscode-lldb
 yoavbls.pretty-ts-errors
