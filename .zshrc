@@ -1,12 +1,8 @@
 # .zshrc
-
 load-secrets() {
   source <(op inject -i ~/.config/secrets.env)
   echo "API keys loaded"
 }
-
-[[ -f ~/.zprofile ]] && source ~/.zprofile
-
 # === PATH SETUP ===
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS: homebrew nvim or standard install
@@ -51,30 +47,46 @@ else
         $fpath
     )
 fi
+
 autoload -Uz compinit; compinit -u
+zstyle ':completion:*' use-cache on
+zstyle ':completion:*' cache-path ~/.cache/zsh
 zstyle ':completion:*:git-checkout:*' sort false
 zstyle ':completion:*:descriptions' format '[%d]'
 # set list-colors to enable filename colorizing
-zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
+[[ -n "$LS_COLORS" ]] && \
+  zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
 zstyle ':completion:*' menu no
+
+source ~/opt/fzf-tab/fzf-tab.plugin.zsh # tab completion fzf, needs to be git cloned!
+# ubuntu compatibility fix: sed -i '83s/^/#/' ~/opt/fzf-tab/lib/-ftb-fzf
+
 # preview directory's content with eza when completing cd
 zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
 # fzf-tab does not follow FZF_DEFAULT_OPTS by default
 zstyle ':fzf-tab:*' fzf-flags --no-clear --height=40%  --bind=enter:accept --info=inline
+zstyle ':fzf-tab:*' use-fzf-default-opts no
 if [[ -n "$TMUX" ]]; then
   zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
   zstyle ':fzf-tab:*' popup-min-size 50 8
 fi
-zstyle ':fzf-tab:*' use-fzf-default-opts no
 
-source ~/opt/fzf-tab/fzf-tab.plugin.zsh # tab completion fzf, needs to be git cloned!
-# ubuntu compatibility fix: sed -i '83s/^/#/' ~/opt/fzf-tab/lib/-ftb-fzf
 
 # zsh plugins (OS-specific paths)
 if [[ "$OSTYPE" == "darwin"* ]]; then
     source /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
     source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
 else
+    # === History (required for autosuggestions on linux) ===
+    export HISTFILE="$HOME/.zsh_history"
+    export HISTSIZE=100000
+    export SAVEHIST=100000
+
+    setopt INC_APPEND_HISTORY
+    setopt SHARE_HISTORY
+    setopt HIST_IGNORE_DUPS
+    setopt HIST_EXPIRE_DUPS_FIRST
+
     source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
     source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
 fi
