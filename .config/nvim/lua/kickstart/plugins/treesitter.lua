@@ -1,6 +1,7 @@
 return {
   { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
+    lazy = false,
     priority = 800,
     build = ':TSUpdate',
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
@@ -23,22 +24,22 @@ return {
       opts.textobjects = {
         select = {
           enable = true,
-          lookahead = true, -- jump forward to nearest textobject
-          keymaps = {
-            -- functions
-            ['af'] = '@function.outer',
-            ['if'] = '@function.inner',
-            ['ac'] = '@class.outer',
-            ['ic'] = '@class.inner',
-          },
+          lookahead = true,
+          keymaps = {},
         },
         move = {
           enable = true,
           set_jumps = true,
-          goto_next_start = { [']f'] = '@function.outer' },
-          goto_previous_start = { ['[f'] = '@function.outer' },
+          goto_next_start = { [']f'] = '@function.outer', [']c'] = '@class.outer' },
+          goto_next_end = { [']F'] = '@function.outer', [']C'] = '@class.outer' },
+          goto_previous_start = { ['[f'] = '@function.outer', ['[c'] = '@class.outer' },
+          goto_previous_end = { ['[F'] = '@function.outer', ['[C'] = '@class.outer' },
         },
-        -- swap = { enable = true, swap_next = { ['<leader>a'] = '@parameter.inner' }, swap_previous = { ['<leader>A'] = '@parameter.inner' }, },
+        swap = {
+          enable = true,
+          swap_next = { ['<leader>s'] = '@parameter.inner' },
+          swap_previous = { ['<leader>S'] = '@parameter.inner' },
+        },
         lsp_interop = {
           enable = true,
           border = 'none',
@@ -62,11 +63,68 @@ return {
     'nvim-treesitter/nvim-treesitter-textobjects',
     branch = 'main',
     init = function()
-      -- Disable entire built-in ftplugin mappings to avoid conflicts.
-      -- See https://github.com/neovim/neovim/tree/master/runtime/ftplugin for built-in ftplugins.
       vim.g.no_plugin_maps = true
     end,
-    config = function() end,
+    config = function()
+      local ts_select = require 'nvim-treesitter-textobjects.select'
+
+      local function map_textobjects(bufnr, keymaps)
+        local opts = { buffer = bufnr, silent = true }
+        for lhs, def in pairs(keymaps) do
+          local capture, modes = def[1], def[2]
+          if type(modes) == 'string' then
+            modes = { modes }
+          end
+          for _, mode in ipairs(modes) do
+            vim.keymap.set(mode, lhs, function()
+              ts_select.select_textobject(capture, 'textobjects', mode)
+            end, opts)
+          end
+        end
+      end
+
+      -- shared maps that work correctly across most languages
+      local common = {
+        ['aa'] = { '@parameter.outer', { 'o', 'x' } },
+        ['ia'] = { '@parameter.inner', { 'o', 'x' } },
+        ['al'] = { '@loop.outer', { 'o', 'x' } },
+        ['il'] = { '@loop.inner', { 'o', 'x' } },
+        ['ai'] = { '@conditional.outer', { 'o', 'x' } },
+        ['ii'] = { '@conditional.inner', { 'o', 'x' } },
+      }
+
+      vim.api.nvim_create_autocmd('FileType', {
+        pattern = { 'c', 'cpp' },
+        group = vim.api.nvim_create_augroup('ts_textobjects_cpp', { clear = true }),
+        callback = function(ev)
+          map_textobjects(
+            ev.buf,
+            vim.tbl_extend('force', common, {
+              ['af'] = { '@function.outer', { 'o', 'x' } }, -- TODO: verify with :InspectTree
+              ['if'] = { '@function.inner', { 'o', 'x' } },
+              ['ac'] = { '@class.outer', { 'o', 'x' } },
+              ['ic'] = { '@class.inner', { 'o', 'x' } },
+            })
+          )
+        end,
+      })
+
+      vim.api.nvim_create_autocmd('FileType', {
+        pattern = { 'python', 'lua', 'go' },
+        group = vim.api.nvim_create_augroup('ts_textobjects_generic', { clear = true }),
+        callback = function(ev)
+          map_textobjects(
+            ev.buf,
+            vim.tbl_extend('force', common, {
+              ['af'] = { '@function.outer', { 'o', 'x' } },
+              ['if'] = { '@function.inner', { 'o', 'x' } },
+              ['ac'] = { '@class.outer', { 'o', 'x' } },
+              ['ic'] = { '@class.inner', { 'o', 'x' } },
+            })
+          )
+        end,
+      })
+    end,
   },
 }
 -- vim: ts=2 sts=2 sw=2 et

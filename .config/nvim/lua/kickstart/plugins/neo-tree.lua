@@ -30,6 +30,7 @@ return {
     retain_hidden_root_indent = true,
     close_if_last_window = true,
     filesystem = {
+      hijack_netrw_behavior = 'disabled',
       follow_current_file = { enabled = true }, -- highlight the active file
       filtered_items = { hide_dotfiles = false }, -- show dotfiles if you like
       use_libuv_file_watcher = true, -- auto-refresh on change

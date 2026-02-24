@@ -126,6 +126,7 @@ alias tls='tmux list-sessions'
 alias td='tmux detach'
 
 # -- git --
+alias gi=lazygit
 alias gs='git status'
 alias gd='git diff'
 alias gc='git commit'
@@ -145,7 +146,6 @@ fi
 
 # === SHELL SCRIPTS ===
 # --- tmux pane title updater ---
-
 if [[ -n "$TMUX" ]]; then
   preexec() {
     print -Pn "\033]2;$1 : ${PWD##*/}\007"
@@ -155,42 +155,55 @@ if [[ -n "$TMUX" ]]; then
   }
 fi
 
-# -- flexible, general purpose, attaching command --
-t() {
-  local name="$1"
-  if [ -n "$TMUX" ]; then
-    # Inside tmux
-    if [ -n "$name" ]; then
-      # Switch or create session by name
-      tmux switch-client -t "$name" 2>/dev/null || { tmux new-session -d -s "$name" && tmux switch-client -t "$name"; }
-    else
-      # No name: switch to most recent
-      tmux switch-client -t '!' 2>/dev/null || echo "No previous session to switch to."
-    fi
+# -- tmux session management with sesh --
+function s() {
+  local choice
+  local -a runner opts
+
+  if [[ -n $TMUX ]]; then
+    runner=(fzf-tmux -p 80%,70% --layout=reverse)
   else
-    # Outside tmux
-    if [ -n "$name" ]; then
-      # Attach or create session by name, preserving PATH
-      PATH="$PATH" tmux new -As "$name"
-    else
-      # No name: fuzzy search
-      PATH="$PATH" tmux attach || PATH="$PATH" tmux new -As main
-    fi
-  fi
+    runner=(fzf --height=20 --layout=reverse)
+  fi  
+  opts=(
+    --ansi
+    --no-sort
+    --border
+    --border-label=' sesh '
+    --prompt='⚡  '
+    --header='  ^a all ^t tmux ^g configs ^x zoxide ^d tmux kill ^f find'
+    --bind='tab:down,btab:up'
+    --bind='ctrl-a:change-prompt(⚡  )+reload(sesh list --icons)'
+    --bind='ctrl-t:change-prompt(🪟  )+reload(sesh list -t --icons)'
+    --bind='ctrl-g:change-prompt(⚙️  )+reload(sesh list -c --icons)'
+    --bind='ctrl-x:change-prompt(📁  )+reload(sesh list -z --icons)'
+    --bind='ctrl-f:change-prompt(🔎  )+reload(fd -H -d 2 -t d -E .Trash . ~)'
+    --bind='ctrl-d:execute(tmux kill-session -t {2..})+reload(sesh list --icons)'
+    --preview-window='right:55%'
+    --preview='sesh preview {}'
+  )
+
+  choice=$(sesh list --icons | "${runner[@]}" "${opts[@]}")
+
+  [[ -n $choice ]] && sesh connect "$choice"
 }
 
-# -- fzf through sessions
-ta() {
-  local session
-  session=$(tmux ls -F '#S' 2>/dev/null | fzf \
-    --height=40% \
-    --border \
-    --prompt="tmux > " \
-    --preview="tmux list-windows -F '#{window_index}: #{window_name}  |  #{pane_current_command}' -t {}" \
-    --preview-window=right:55%:wrap
-  )
-  [[ -n "$session" ]] && tmux attach -t "$session"
+# alt + s, browse existing sessions
+function sesh-sessions() {
+  {
+    exec </dev/tty
+    exec <&1
+    local session
+    session=$(sesh list -t -c | fzf --height 40% --reverse --border-label ' sesh ' --border --prompt '⚡  ')
+    zle reset-prompt > /dev/null 2>&1 || true
+    [[ -z "$session" ]] && return
+    sesh connect $session
+  }
 }
+zle     -N             sesh-sessions
+bindkey -M emacs '\es' sesh-sessions
+bindkey -M vicmd '\es' sesh-sessions
+bindkey -M viins '\es' sesh-sessions
 
 # --- Get path to git root --- 
 groot() { git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null || return 1 }
