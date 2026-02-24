@@ -48,6 +48,7 @@ all_files_and_dirs=(
     "~/.config/starship.toml"
     "~/.config/alacritty/alacritty.toml"
     "~/.config/secrets.env"
+    "~/.config/sesh/sesh.toml"
 )
 
 # VS Code files (use detected path)

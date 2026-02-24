@@ -3,6 +3,14 @@
 # Configuration - auto-detect repo location
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Parse command-line arguments
+SKIP_PROMPTS=false
+if [[ "$1" == "-y" ]] || [[ "$1" == "--yes" ]]; then
+    SKIP_PROMPTS=true
+    echo "Running in non-interactive mode (all prompts auto-confirmed)..."
+    echo ""
+fi
+
 # Detect OS and set VS Code path
 if [[ "$OSTYPE" == "darwin"* ]]; then
     VSCODE_USER="$HOME/Library/Application Support/Code/User"
@@ -68,7 +76,7 @@ for item in "${files_and_dirs[@]}"; do
 
     # Handle files: just overwrite the specific file
     if [ -f "$source_path" ]; then
-        if [ -e "$dest_path" ]; then
+        if [ -e "$dest_path" ] && [ "$SKIP_PROMPTS" = false ]; then
             echo ""
             echo "Warning: $dest_path already exists."
             read -p "Replace it? [y/N] " -n 1 -r
@@ -103,13 +111,15 @@ for item in "${files_and_dirs[@]}"; do
             echo "Installed directory: $rel_path"
         elif [ "$should_replace" = true ]; then
             # Replace entire directory (nvim, git, etc.)
-            echo ""
-            echo "Warning: $dest_path already exists."
-            read -p "Replace entire directory? [y/N] " -n 1 -r
-            echo ""
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                echo "Skipped: $rel_path"
-                continue
+            if [ "$SKIP_PROMPTS" = false ]; then
+                echo ""
+                echo "Warning: $dest_path already exists."
+                read -p "Replace entire directory? [y/N] " -n 1 -r
+                echo ""
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    echo "Skipped: $rel_path"
+                    continue
+                fi
             fi
             rm -rf "$dest_path"
             cp -r "$source_path" "$dest_path"
@@ -124,7 +134,7 @@ for item in "${files_and_dirs[@]}"; do
                 dest_file_dir=$(dirname "$dest_file")
                 mkdir -p "$dest_file_dir"
 
-                if [ -e "$dest_file" ]; then
+                if [ -e "$dest_file" ] && [ "$SKIP_PROMPTS" = false ]; then
                     echo ""
                     echo "  Warning: $dest_file already exists."
                     read -p "  Replace it? [y/N] " -n 1 -r < /dev/tty
@@ -156,7 +166,7 @@ for item in "${vscode_files[@]}"; do
     mkdir -p "$VSCODE_USER"
 
     if [ -f "$source_path" ]; then
-        if [ -e "$dest_path" ]; then
+        if [ -e "$dest_path" ] && [ "$SKIP_PROMPTS" = false ]; then
             echo ""
             echo "Warning: $dest_path already exists."
             read -p "Replace it? [y/N] " -n 1 -r
@@ -178,7 +188,7 @@ for item in "${vscode_files[@]}"; do
                 inner_rel="${src_file#$source_path/}"
                 dest_file="$dest_path/$inner_rel"
                 mkdir -p "$(dirname "$dest_file")"
-                if [ -e "$dest_file" ]; then
+                if [ -e "$dest_file" ] && [ "$SKIP_PROMPTS" = false ]; then
                     echo ""
                     echo "  Warning: $dest_file already exists."
                     read -p "  Replace it? [y/N] " -n 1 -r < /dev/tty
@@ -200,14 +210,77 @@ extensions_file="$REPO_DIR/.config/Code/extensions.txt"
 if [ -f "$extensions_file" ] && command -v code &>/dev/null; then
     echo ""
     echo "Found VS Code extensions list ($(wc -l < "$extensions_file" | tr -d ' ') extensions)."
-    read -p "Install VS Code extensions? [y/N] " -n 1 -r
-    echo ""
+    
+    if [ "$SKIP_PROMPTS" = false ]; then
+        read -p "Sync VS Code extensions? [y/N] " -n 1 -r
+        echo ""
+    else
+        REPLY="y"
+    fi
+    
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        while read -r extension; do
-            echo "Installing: $extension"
-            code --install-extension "$extension" --force 2>/dev/null
-        done < "$extensions_file"
-        echo "Extensions installed."
+        # Get list of currently installed extensions
+        echo "Checking currently installed extensions..."
+        mapfile -t installed_extensions < <(code --list-extensions 2>/dev/null)
+        
+        # Read desired extensions into array
+        mapfile -t desired_extensions < <(grep -v '^[[:space:]]*$' "$extensions_file")
+        
+        # Create associative arrays for faster lookup
+        declare -A installed_map
+        declare -A desired_map
+        
+        for ext in "${installed_extensions[@]}"; do
+            installed_map["$ext"]=1
+        done
+        
+        for ext in "${desired_extensions[@]}"; do
+            desired_map["$ext"]=1
+        done
+        
+        # Install missing extensions
+        echo ""
+        echo "Installing missing extensions..."
+        installed_count=0
+        for ext in "${desired_extensions[@]}"; do
+            if [[ -z "${installed_map[$ext]}" ]]; then
+                echo "  Installing: $ext"
+                code --install-extension "$ext" --force 2>/dev/null
+                ((installed_count++))
+            fi
+        done
+        
+        if [ $installed_count -eq 0 ]; then
+            echo "  No new extensions to install."
+        else
+            echo "  Installed $installed_count extension(s)."
+        fi
+        
+        # Remove extensions not in the list
+        echo ""
+        echo "Removing extensions not in list..."
+        removed_count=0
+        for ext in "${installed_extensions[@]}"; do
+            if [[ -z "${desired_map[$ext]}" ]]; then
+                echo "  Removing: $ext"
+                code --uninstall-extension "$ext" 2>/dev/null
+                ((removed_count++))
+            fi
+        done
+        
+        if [ $removed_count -eq 0 ]; then
+            echo "  No extensions to remove."
+        else
+            echo "  Removed $removed_count extension(s)."
+        fi
+        
+        # Summary
+        echo ""
+        already_installed=$((${#desired_extensions[@]} - installed_count))
+        echo "Extension sync complete:"
+        echo "  - Already installed: $already_installed"
+        echo "  - Newly installed: $installed_count"
+        echo "  - Removed: $removed_count"
     else
         echo "Skipped VS Code extensions."
     fi
