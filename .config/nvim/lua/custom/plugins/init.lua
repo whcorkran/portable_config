@@ -18,6 +18,7 @@ return {
     config = function()
       vim.opt.cmdheight = 1
       vim.opt.laststatus = 3
+
       require('lualine').setup {
         options = {
           globalstatus = true,
@@ -27,8 +28,19 @@ return {
         },
         sections = {
           lualine_a = { 'mode' },
-          -- lualine_b = { { 'buffers', mode = 2, symbols = { modified = ' ●' }, alternate_file = '' } }, -- 👈 shows all buffers
-          lualine_c = { nil },
+          lualine_b = { 'branch' },
+          lualine_c = {
+            {
+              'filename',
+              path = 4,
+              shorting_target = 40,
+              symbols = {
+                modified = ' ●',
+                readonly = ' 🔒',
+                unnamed = '[No Name]',
+              },
+            },
+          },
           lualine_x = { 'encoding', 'filetype' },
           lualine_y = { 'progress' },
           lualine_z = { 'location' },
