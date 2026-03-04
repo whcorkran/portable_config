@@ -63,6 +63,7 @@ source ~/opt/fzf-tab/fzf-tab.plugin.zsh # tab completion fzf, needs to be git cl
 
 # preview directory's content with eza when completing cd
 zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
+zstyle ':fzf-tab:complete:z:*' fzf-preview 'eza -1 --color=always $realpath'
 # fzf-tab does not follow FZF_DEFAULT_OPTS by default
 zstyle ':fzf-tab:*' fzf-flags --no-clear --height=40%  --bind=enter:accept --info=inline
 zstyle ':fzf-tab:*' use-fzf-default-opts no
@@ -156,9 +157,14 @@ if [[ -n "$TMUX" ]]; then
 fi
 
 # -- tmux session management with sesh --
-function s() {
+function t() {
   local choice
   local -a runner opts
+
+    if [[ -n $1 ]]; then
+        sesh connect "$1"
+        return
+    fi
 
   if [[ -n $TMUX ]]; then
     runner=(fzf-tmux -p 80%,70% --layout=reverse)

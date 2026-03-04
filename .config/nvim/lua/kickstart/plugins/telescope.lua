@@ -89,6 +89,7 @@ return {
             grouped = true,
             select_buffer = true,
             sorting_strategy = 'ascending',
+            hijack_netrw = true,
             hidden = false,
             initial_mode = 'normal',
 
